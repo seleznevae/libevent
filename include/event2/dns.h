@@ -183,7 +183,12 @@ extern "C" {
 #define DNS_PTR 2
 #define DNS_IPv6_AAAA 3
 
+/** Disable searching for the query. */
 #define DNS_QUERY_NO_SEARCH 1
+/** Use TCP connections ("virtual circuits") for queries rather than UDP datagrams. */
+#define DNS_QUERY_USEVC 2
+/** Ignore trancation flag in responses (don't fallback to TCP connections). */
+#define DNS_QUERY_IGNTC 4
 
 /* Allow searching */
 #define DNS_OPTION_SEARCH 1
@@ -390,7 +395,7 @@ struct evdns_request;
 
   @param base the evdns_base to which to apply this operation
   @param name a DNS hostname
-  @param flags either 0, or DNS_QUERY_NO_SEARCH to disable searching for this query.
+  @param flags either 0, or combination of DNS_QUERY_* flags.
   @param callback a callback function to invoke when the request is completed
   @param ptr an argument to pass to the callback function
   @return an evdns_request object if successful, or NULL if an error occurred.
@@ -404,7 +409,7 @@ struct evdns_request *evdns_base_resolve_ipv4(struct evdns_base *base, const cha
 
   @param base the evdns_base to which to apply this operation
   @param name a DNS hostname
-  @param flags either 0, or DNS_QUERY_NO_SEARCH to disable searching for this query.
+  @param flags either 0, or combination of DNS_QUERY_* flags.
   @param callback a callback function to invoke when the request is completed
   @param ptr an argument to pass to the callback function
   @return an evdns_request object if successful, or NULL if an error occurred.
@@ -421,7 +426,7 @@ struct in6_addr;
 
   @param base the evdns_base to which to apply this operation
   @param in an IPv4 address
-  @param flags either 0, or DNS_QUERY_NO_SEARCH to disable searching for this query.
+  @param flags either 0, or combination of DNS_QUERY_* flags.
   @param callback a callback function to invoke when the request is completed
   @param ptr an argument to pass to the callback function
   @return an evdns_request object if successful, or NULL if an error occurred.
@@ -436,7 +441,7 @@ struct evdns_request *evdns_base_resolve_reverse(struct evdns_base *base, const 
 
   @param base the evdns_base to which to apply this operation
   @param in an IPv6 address
-  @param flags either 0, or DNS_QUERY_NO_SEARCH to disable searching for this query.
+  @param flags either 0, or combination of DNS_QUERY_* flags.
   @param callback a callback function to invoke when the request is completed
   @param ptr an argument to pass to the callback function
   @return an evdns_request object if successful, or NULL if an error occurred.
@@ -649,7 +654,7 @@ typedef void (*evdns_request_callback_fn_type)(struct evdns_server_request *, vo
 /** Create a new DNS server port.
 
     @param base The event base to handle events for the server port.
-    @param socket A UDP socket to accept DNS requests.
+    @param socket A UDP or TCP socket to accept DNS requests.
     @param flags Always 0 for now.
     @param callback A function to invoke whenever we get a DNS request
       on the socket.
