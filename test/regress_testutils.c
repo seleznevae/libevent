@@ -114,6 +114,10 @@ regress_get_dnsserver(struct event_base *base,
 	}
 
 	evutil_make_socket_nonblocking(sock);
+	if (socket_type == SOCK_STREAM && evutil_make_listen_socket_reuseable(sock)) {
+		evutil_closesocket(sock);
+		tt_abort_perror("make_listen_socket_reuseable");
+	}
 
 	memset(&my_addr, 0, sizeof(my_addr));
 	my_addr.sin_family = AF_INET;
@@ -239,17 +243,17 @@ regress_dnsserver(struct event_base *base, ev_uint16_t *port,
 	if (!udp_seach_table && !tcp_seach_table)
 		goto error;
 
-	if (udp_seach_table) {
-		udp_dns_port = regress_get_dnsserver(base, port, &udp_dns_sock, SOCK_DGRAM,
-			regress_dns_server_cb, udp_seach_table);
-		if (!udp_dns_port)
-			goto error;
-	}
-
 	if (tcp_seach_table) {
 		tcp_dns_port = regress_get_dnsserver(base, port, &tcp_dns_sock, SOCK_STREAM,
 			regress_dns_server_cb, tcp_seach_table);
 		if (!tcp_dns_port)
+			goto error;
+	}
+
+	if (udp_seach_table) {
+		udp_dns_port = regress_get_dnsserver(base, port, &udp_dns_sock, SOCK_DGRAM,
+			regress_dns_server_cb, udp_seach_table);
+		if (!udp_dns_port)
 			goto error;
 	}
 	return 1;
