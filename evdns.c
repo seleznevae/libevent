@@ -1640,12 +1640,13 @@ server_send_response(struct evdns_server_port *port, struct server_request *req)
 	if (req->client) {
 		bev = req->client->connection.bev;
 		EVUTIL_ASSERT(bev);
-		packet_size = htons(req->response_len);
+		EVUTIL_ASSERT(req->response_len <= 65535);
+		packet_size = htons((u16)req->response_len);
 		if (bufferevent_write(bev, &packet_size, sizeof(packet_size)))
 			goto beferevent_error;
 		if (bufferevent_write(bev, (void*)req->response, req->response_len))
 			goto beferevent_error;
-		return req->response_len;
+		return (int)req->response_len;
 	} else {
 		int r = sendto(port->socket, req->response, (int)req->response_len, 0,
 					(struct sockaddr*) &req->addr, (ev_socklen_t)req->addrlen);
@@ -1656,7 +1657,7 @@ beferevent_error:
 	log(EVDNS_LOG_WARN, "Failed to send reply to request %p for client %p", req, req->client);
 	/* disconnect if we got bufferevent error */
 	evdns_remove_tcp_client(port, req->client);
-	return req->response_len; /* ???????????????????????? */
+	return (int)req->response_len; /* ???????????????????????? */
 }
 
 /* Try to write all pending replies on a given DNS server port. */
@@ -2020,7 +2021,7 @@ tcp_read_message(struct tcp_connection *conn, u8 **msg, int *msg_len)
 	if (!packet)
 		goto fail;
 
-	r = bufferevent_read(bev, (void*)packet, conn->awaiting_packet_size);
+	r = (int)bufferevent_read(bev, (void*)packet, conn->awaiting_packet_size);
 	if (r != conn->awaiting_packet_size) {
 		mm_free (packet);
 		packet = NULL;
@@ -3379,7 +3380,7 @@ request_new(struct evdns_base *base, struct evdns_request *handle, int type,
 
 	memset(req, 0, sizeof(struct request));
 
-	req->request_size = sizeof(struct request) + request_max_len;
+	req->request_size = (u16)(sizeof(struct request) + request_max_len);
 	req->base = base;
 
 	evtimer_assign(&req->timeout_event, req->base->event_base, evdns_request_timeout_callback, req);
