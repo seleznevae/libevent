@@ -467,7 +467,7 @@ void evdns_cancel_request(struct evdns_base *base, struct evdns_request *req);
 
     ndots, timeout, max-timeouts, max-inflight, attempts, randomize-case,
     bind-to, initial-probe-timeout, getaddrinfo-allow-skew,
-    so-rcvbuf, so-sndbuf.
+    so-rcvbuf, so-sndbuf, use-vc, ignore-tc.
 
   In versions before Libevent 2.0.3-alpha, the option name needed to end with
   a colon.

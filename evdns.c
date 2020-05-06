@@ -377,6 +377,10 @@ struct evdns_base {
 	 * probing to see if it has returned?  */
 	struct timeval global_nameserver_probe_initial_timeout;
 
+	/* Combination of DNS_QUERY_USEVC, DNS_QUERY_IGNTC flags
+	 * to control requests via TCP. */
+	u16 global_tcp_flags;
+
 	/** Port to bind to for outgoing DNS packets. */
 	struct sockaddr_storage global_outgoing_address;
 	/** ev_socklen_t for global_outgoing_address. 0 if it isn't set. */
@@ -3525,7 +3529,8 @@ evdns_base_resolve_ipv4(struct evdns_base *base, const char *name, int flags,
 	if (handle == NULL)
 		return NULL;
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	if (flags & DNS_QUERY_NO_SEARCH) {
 		req =
 			request_new(base, handle, TYPE_A, name, flags,
@@ -3565,7 +3570,8 @@ evdns_base_resolve_ipv6(struct evdns_base *base,
 	if (handle == NULL)
 		return NULL;
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	if (flags & DNS_QUERY_NO_SEARCH) {
 		req = request_new(base, handle, TYPE_AAAA, name, flags,
 				  callback, ptr);
@@ -3607,7 +3613,8 @@ evdns_base_resolve_reverse(struct evdns_base *base, const struct in_addr *in, in
 		return NULL;
 	log(EVDNS_LOG_DEBUG, "Resolve requested for %s (reverse)", buf);
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	req = request_new(base, handle, TYPE_PTR, buf, flags, callback, ptr);
 	if (req)
 		request_submit(req);
@@ -3648,7 +3655,8 @@ evdns_base_resolve_reverse_ipv6(struct evdns_base *base, const struct in6_addr *
 		return NULL;
 	log(EVDNS_LOG_DEBUG, "Resolve requested for %s (reverse)", buf);
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	req = request_new(base, handle, TYPE_PTR, buf, flags, callback, ptr);
 	if (req)
 		request_submit(req);
@@ -4170,6 +4178,14 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		log(EVDNS_LOG_DEBUG, "Setting SO_SNDBUF to %s", val);
 		base->so_sndbuf = buf;
+	} else if (!strcmp(option, "use-vc")) {
+		if (!(flags & DNS_OPTION_MISC)) return 0;
+		log(EVDNS_LOG_DEBUG, "Setting use-vc option");
+		base->global_tcp_flags |= DNS_QUERY_USEVC;
+	} else if (!strcmp(option, "ingore-tc")) {
+		if (!(flags & DNS_OPTION_MISC)) return 0;
+		log(EVDNS_LOG_DEBUG, "Setting ignore-tc option");
+		base->global_tcp_flags |= DNS_QUERY_IGNTC;
 	}
 	return 0;
 }
