@@ -2567,24 +2567,25 @@ retransmit_all_tcp_requests_for(struct nameserver *server)
 {
 	int i = 0;
 	for (i = 0; i < server->base->n_req_heads; ++i) {
-		struct request* started_at = NULL;
-		struct request* req = started_at = server->base->req_heads[i];
-		if (req) {
-			do {
-				if (req->ns == server && (req->handle->tcp_flags & DNS_QUERY_USEVC)) {
-					if (req->tx_count >= req->base->global_max_retransmits) {
-						log(EVDNS_LOG_DEBUG, "Giving up on request %p; tx_count==%d",
-							req, req->tx_count);
-						reply_schedule_callback(req, 0, DNS_ERR_TIMEOUT, NULL);
-						request_finished(req, &REQ_HEAD(req->base, req->trans_id), 1);
-					} else {
-						(void) evtimer_del(&req->timeout_event);
-						evdns_request_transmit(req);
-					}
+		struct request *started_at = server->base->req_heads[i];
+		struct request *req = started_at;
+		if (!req)
+			continue;
+
+		do {
+			if (req->ns == server && (req->handle->tcp_flags & DNS_QUERY_USEVC)) {
+				if (req->tx_count >= req->base->global_max_retransmits) {
+					log(EVDNS_LOG_DEBUG, "Giving up on request %p; tx_count==%d",
+						req, req->tx_count);
+					reply_schedule_callback(req, 0, DNS_ERR_TIMEOUT, NULL);
+					request_finished(req, &REQ_HEAD(req->base, req->trans_id), 1);
+				} else {
+					(void) evtimer_del(&req->timeout_event);
+					evdns_request_transmit(req);
 				}
-				req = req->next;
-			} while (req != started_at);
-		}
+			}
+			req = req->next;
+		} while (req != started_at);
 	}
 }
 
