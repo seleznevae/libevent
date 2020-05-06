@@ -160,7 +160,7 @@
 #define SERVER_IDLE_CONN_TIMEOUT 10
 /* Timeout in seconds for idle TCP connections that client keeps alive. */
 #define CLIENT_IDLE_CONN_TIMEOUT 5
-/* Maximum number of simultaneous TCP client connections that DNS server can hold. */
+/* Default maximum number of simultaneous TCP client connections that DNS server can hold. */
 #define MAX_CLIENT_CONNECTIONS 10
 
 /* Persistent handle.  We keep this separate from 'struct request' since we
@@ -223,7 +223,6 @@ struct reply {
 	} data;
 };
 
-
 enum tcp_state {
 	TS_DISCONNECTED,
 	TS_CONNECTING,
@@ -243,7 +242,6 @@ struct client_tcp_connection {
 	struct tcp_connection connection;
 	struct evdns_server_port *port;
 };
-
 
 struct nameserver {
 	evutil_socket_t socket;	 /* a connected UDP socket */
@@ -376,6 +374,10 @@ struct evdns_base {
 	/* The first time that a nameserver fails, how long do we wait before
 	 * probing to see if it has returned?  */
 	struct timeval global_nameserver_probe_initial_timeout;
+
+	/* Combination of DNS_QUERY_USEVC, DNS_QUERY_IGNTC flags
+	 * to control requests via TCP. */
+	u16 global_tcp_flags;
 
 	/** Port to bind to for outgoing DNS packets. */
 	struct sockaddr_storage global_outgoing_address;
@@ -537,8 +539,7 @@ static struct client_tcp_connection*
 evdns_add_tcp_client(struct evdns_server_port *port, struct bufferevent *bev)
 {
 	struct client_tcp_connection *client;
-	if (!port || !bev)
-		goto error;
+	EVUTIL_ASSERT(port && bev);
 	if (port->max_client_connections == port->client_connections_count)
 		goto error;
 
@@ -1020,7 +1021,7 @@ reply_schedule_callback(struct request *const req, u32 ttl, u32 err, struct repl
 }
 
 static int
-client_retransmit_through_tcp (struct evdns_request *const handle) 
+client_retransmit_through_tcp(struct evdns_request *handle)
 {
 	struct request *req = handle->current_req;
 	struct evdns_base *base = req->base;
@@ -1052,6 +1053,7 @@ static void
 reply_handle(struct request *const req, u16 flags, u32 ttl, struct reply *reply) {
 	int error;
 	char addrbuf[128];
+	int retransmit_via_tcp = 0;
 	static const int error_codes[] = {
 		DNS_ERR_FORMAT, DNS_ERR_SERVERFAILED, DNS_ERR_NOTEXIST,
 		DNS_ERR_NOTIMPL, DNS_ERR_REFUSED
@@ -1064,6 +1066,7 @@ reply_handle(struct request *const req, u16 flags, u32 ttl, struct reply *reply)
 		/* there was an error */
 		if (flags & _TC_MASK) {
 			error = DNS_ERR_TRUNCATED;
+			retransmit_via_tcp = (req->handle->tcp_flags & (DNS_QUERY_IGNTC | DNS_QUERY_USEVC)) == 0;
 		} else if (flags & _RCODE_MASK) {
 			u16 error_code = (flags & _RCODE_MASK) - 1;
 			if (error_code > 4) {
@@ -1113,27 +1116,26 @@ reply_handle(struct request *const req, u16 flags, u32 ttl, struct reply *reply)
 			nameserver_up(req->ns);
 		}
 
-		/* we should skip next searching if response has been truncated */
-		if (error != DNS_ERR_TRUNCATED) {
-			if (req->handle->search_state &&
-				req->request_type != TYPE_PTR) {
-				/* if we have a list of domains to search in,
-				* try the next one */
-				if (!search_try_next(req->handle)) {
-					/* a new request was issued so this
-					* request is finished and */
-					/* the user callback will be made when
-					* that request (or a */
-					/* child of it) finishes. */
-					return;
-				}
-			}
-		} else  if ((req->handle->tcp_flags & (DNS_QUERY_IGNTC | DNS_QUERY_USEVC)) == 0) {
+		if (retransmit_via_tcp) {
 			log(EVDNS_LOG_DEBUG, "Recieved truncated reply(flags 0x%x, transanc ID: %d). Retransmiting via TCP.",
 				req->handle->tcp_flags, req->trans_id);
 			req->handle->tcp_flags |= DNS_QUERY_USEVC;
-			client_retransmit_through_tcp (req->handle);
+			client_retransmit_through_tcp(req->handle);
 			return;
+		}
+
+		if (req->handle->search_state &&
+		    req->request_type != TYPE_PTR) {
+			/* if we have a list of domains to search in,
+			 * try the next one */
+			if (!search_try_next(req->handle)) {
+				/* a new request was issued so this
+				 * request is finished and */
+				/* the user callback will be made when
+				 * that request (or a */
+				/* child of it) finishes. */
+				return;
+			}
 		}
 
 		/* all else failed. Pass the failure up */
@@ -1938,12 +1940,6 @@ struct evdns_server_port *
 evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket, int flags, evdns_request_callback_fn_type cb, void *user_data)
 {
 	struct evdns_server_port *port;
-	int sock_type;
-	ev_socklen_t sock_type_len = sizeof(sock_type);
-	/* Check that socket is a UDP or TCP socket */
-	if (getsockopt(socket, SOL_SOCKET, SO_TYPE, (void*)&sock_type, &sock_type_len)
-			|| (sock_type != SOCK_DGRAM && sock_type != SOCK_STREAM))
-		return NULL;
 	if (flags)
 		return NULL; /* flags not yet implemented */
 	if (!(port = mm_malloc(sizeof(struct evdns_server_port))))
@@ -1961,27 +1957,43 @@ evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket,
 	port->event_base = base;
 	port->max_client_connections = MAX_CLIENT_CONNECTIONS;
 	port->client_connections_count = 0;
-
-	if (sock_type == SOCK_DGRAM) {
-		/* UDP DNS server */
-		event_assign(&port->event, port->event_base,
-					 port->socket, EV_READ | EV_PERSIST,
-					 server_port_ready_callback, port);
-		if (event_add(&port->event, NULL) < 0) {
-			mm_free(port);
-			return NULL;
-		}
-	} else {
-		/* TCP DNS server */
-		port->socket = -1;
-		port->listener = evconnlistener_new(base, incoming_conn_cb, port,
-							LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1, socket);
-		if (!port->listener) {
-			mm_free(port);
-			return NULL;
-		}
-	}
 	LIST_INIT(&port->client_connections);
+	event_assign(&port->event, port->event_base,
+				 port->socket, EV_READ | EV_PERSIST,
+				 server_port_ready_callback, port);
+	if (event_add(&port->event, NULL) < 0) {
+		mm_free(port);
+		return NULL;
+	}
+	EVTHREAD_ALLOC_LOCK(port->lock, EVTHREAD_LOCKTYPE_RECURSIVE);
+	return port;
+}
+
+/* exported function */
+struct evdns_server_port *
+evdns_add_server_port_with_listener(struct event_base *base, struct evconnlistener *listener, int flags, evdns_request_callback_fn_type cb, void *user_data)
+{
+	struct evdns_server_port *port;
+	if (!listener)
+		return NULL;
+	if (flags)
+		return NULL; /* flags not yet implemented */
+
+	if (!(port = mm_calloc(1, sizeof(struct evdns_server_port))))
+		return NULL;
+	port->socket = -1;
+	port->refcnt = 1;
+	port->choked = 0;
+	port->closing = 0;
+	port->user_callback = cb;
+	port->user_data = user_data;
+	port->pending_replies = NULL;
+	port->event_base = base;
+	port->max_client_connections = MAX_CLIENT_CONNECTIONS;
+	port->client_connections_count = 0;
+	LIST_INIT(&port->client_connections);
+	port->listener = listener;
+	evconnlistener_set_cb(port->listener, incoming_conn_cb, port);
 
 	EVTHREAD_ALLOC_LOCK(port->lock, EVTHREAD_LOCKTYPE_RECURSIVE);
 	return port;
@@ -2003,7 +2015,7 @@ tcp_read_message(struct tcp_connection *conn, u8 **msg, int *msg_len)
 
 	/* reading new packet size */
 	if (!conn->awaiting_packet_size) {
-		if (evbuffer_get_length(input) < 2)
+		if (evbuffer_get_length(input) < sizeof(ev_uint16_t))
 			goto awaiting_next;
 
 		bufferevent_read(bev, (void*)&conn->awaiting_packet_size,
@@ -2041,6 +2053,7 @@ server_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 {
 	u8 *msg = NULL;
 	int msg_len = 0;
+	int rc;
 	struct client_tcp_connection *client = (struct client_tcp_connection *)ctx;
 	struct evdns_server_port *port = client->port;
 	struct tcp_connection *conn = &client->connection;
@@ -2051,8 +2064,9 @@ server_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 		if (tcp_read_message(conn, &msg, &msg_len)) {
 			log(EVDNS_LOG_MSG, "Closing client connection %p due to error", bev);
 			evdns_remove_tcp_client(port, client);
+			rc = port->refcnt;
 			EVDNS_UNLOCK(port);
-			if (!port->refcnt)
+			if (!rc)
 				server_port_free(port);
 			return;
 		}
@@ -2068,7 +2082,7 @@ server_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 	}
 
 	bufferevent_setwatermark(bev, EV_READ,
-			conn->awaiting_packet_size ? conn->awaiting_packet_size : 2, 0);
+			conn->awaiting_packet_size ? conn->awaiting_packet_size : sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, server_tcp_read_packet_cb, NULL, server_tcp_event_cb, ctx);
 	EVDNS_UNLOCK(port);
 }
@@ -2078,15 +2092,17 @@ server_tcp_event_cb(struct bufferevent *bev, short events, void *ctx)
 {
 	struct client_tcp_connection *client = (struct client_tcp_connection *)ctx;
 	struct evdns_server_port *port = client->port;
+	int rc;
 	EVUTIL_ASSERT(port && bev);
 	EVDNS_LOCK(port);
 	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
-		evdns_remove_tcp_client(port, client);
-		if (!port->refcnt)
-			server_port_free (port);
 		log(EVDNS_LOG_DEBUG, "Closing connection %p", bev);
+		evdns_remove_tcp_client(port, client);
 	}
+	rc = port->refcnt;
 	EVDNS_UNLOCK(port);
+	if (!rc)
+		server_port_free(port);
 }
 
 static void
@@ -2113,9 +2129,9 @@ incoming_conn_cb(struct evconnlistener *listener, evutil_socket_t fd,
 	cd = &client->connection;
 
 	cd->state = TS_CONNECTED;
-	bufferevent_setwatermark(bev, EV_READ, 2, 0);
+	bufferevent_setwatermark(bev, EV_READ, sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, server_tcp_read_packet_cb, NULL, server_tcp_event_cb, (void *)client);
-	bufferevent_enable(bev, EV_READ | EV_WRITE);
+	bufferevent_enable(bev, EV_READ);
 
 	return;
 error:
@@ -2563,24 +2579,25 @@ retransmit_all_tcp_requests_for(struct nameserver *server)
 {
 	int i = 0;
 	for (i = 0; i < server->base->n_req_heads; ++i) {
-		struct request* started_at = NULL;
-		struct request* req = started_at = server->base->req_heads[i];
-		if (req) {
-			do {
-				if (req->ns == server && (req->handle->tcp_flags & DNS_QUERY_USEVC)) {
-					if (req->tx_count >= req->base->global_max_retransmits) {
-						log(EVDNS_LOG_DEBUG, "Giving up on request %p; tx_count==%d",
-							req, req->tx_count);
-						reply_schedule_callback(req, 0, DNS_ERR_TIMEOUT, NULL);
-						request_finished(req, &REQ_HEAD(req->base, req->trans_id), 1);
-					} else {
-						(void) evtimer_del(&req->timeout_event);
-						evdns_request_transmit(req);
-					}
+		struct request *started_at = server->base->req_heads[i];
+		struct request *req = started_at;
+		if (!req)
+			continue;
+
+		do {
+			if (req->ns == server && (req->handle->tcp_flags & DNS_QUERY_USEVC)) {
+				if (req->tx_count >= req->base->global_max_retransmits) {
+					log(EVDNS_LOG_DEBUG, "Giving up on request %p; tx_count==%d",
+						req, req->tx_count);
+					reply_schedule_callback(req, 0, DNS_ERR_TIMEOUT, NULL);
+					request_finished(req, &REQ_HEAD(req->base, req->trans_id), 1);
+				} else {
+					(void) evtimer_del(&req->timeout_event);
+					evdns_request_transmit(req);
 				}
-				req = req->next;
-			} while (req != started_at);
-		}
+			}
+			req = req->next;
+		} while (req != started_at);
 	}
 }
 
@@ -2732,7 +2749,7 @@ client_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 	}
 
 	bufferevent_setwatermark(bev, EV_READ,
-		conn->awaiting_packet_size ? conn->awaiting_packet_size : 2, 0);
+		conn->awaiting_packet_size ? conn->awaiting_packet_size : sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, client_tcp_read_packet_cb, NULL, client_tcp_event_cb, ctx);
 	EVDNS_UNLOCK(server->base);
 }
@@ -2758,7 +2775,7 @@ client_tcp_event_cb(struct bufferevent *bev, short events, void *ctx) {
 		conn->state = TS_CONNECTED;
 		evutil_make_socket_nonblocking (bufferevent_getfd (bev));
 		bufferevent_setcb (bev, client_tcp_read_packet_cb, NULL, client_tcp_event_cb, server);
-		bufferevent_setwatermark (bev, EV_READ, 2, 0);
+		bufferevent_setwatermark (bev, EV_READ, sizeof(ev_uint16_t), 0);
 	}
 	EVDNS_UNLOCK(server->base);
 }
@@ -2789,7 +2806,7 @@ evdns_request_transmit_through_tcp(struct request *req, struct nameserver *serve
 		goto fail;
 	if (bufferevent_write(conn->bev, (void*)req->request, req->request_len) )
 		goto fail;
-	if (bufferevent_enable(conn->bev, EV_READ|EV_WRITE))
+	if (bufferevent_enable(conn->bev, EV_READ))
 		goto fail;
 	if (evtimer_add(&req->timeout_event, &req->base->global_timeout) < 0)
 		goto fail;
@@ -3525,7 +3542,8 @@ evdns_base_resolve_ipv4(struct evdns_base *base, const char *name, int flags,
 	if (handle == NULL)
 		return NULL;
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	if (flags & DNS_QUERY_NO_SEARCH) {
 		req =
 			request_new(base, handle, TYPE_A, name, flags,
@@ -3565,7 +3583,8 @@ evdns_base_resolve_ipv6(struct evdns_base *base,
 	if (handle == NULL)
 		return NULL;
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	if (flags & DNS_QUERY_NO_SEARCH) {
 		req = request_new(base, handle, TYPE_AAAA, name, flags,
 				  callback, ptr);
@@ -3607,7 +3626,8 @@ evdns_base_resolve_reverse(struct evdns_base *base, const struct in_addr *in, in
 		return NULL;
 	log(EVDNS_LOG_DEBUG, "Resolve requested for %s (reverse)", buf);
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	req = request_new(base, handle, TYPE_PTR, buf, flags, callback, ptr);
 	if (req)
 		request_submit(req);
@@ -3648,7 +3668,8 @@ evdns_base_resolve_reverse_ipv6(struct evdns_base *base, const struct in6_addr *
 		return NULL;
 	log(EVDNS_LOG_DEBUG, "Resolve requested for %s (reverse)", buf);
 	EVDNS_LOCK(base);
-	handle->tcp_flags = flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
+	handle->tcp_flags = base->global_tcp_flags;
+	handle->tcp_flags |= flags & (DNS_QUERY_USEVC | DNS_QUERY_IGNTC);
 	req = request_new(base, handle, TYPE_PTR, buf, flags, callback, ptr);
 	if (req)
 		request_submit(req);
@@ -4089,6 +4110,37 @@ str_matches_option(const char *s1, const char *optionname)
 		return 0;
 }
 
+/* exported function */
+int
+evdns_server_port_set_option(struct evdns_server_port *port,
+	const char *option, const char *val)
+{
+	int res = 0;
+	EVDNS_LOCK(port);
+	if (str_matches_option(option, "max-tcp-clients:")) {
+		const int max_clients = strtoint(val);
+		if (max_clients < 0) {
+			log(EVDNS_LOG_WARN, "Invalid value %s of max-tcp-clients option",
+				val);
+			res = -1;
+			goto end;
+		}
+		if (!port->listener) {
+			log(EVDNS_LOG_WARN, "max-tcp-clients option can be set only on TCP server");
+			res = -1;
+			goto end;
+		}
+		log(EVDNS_LOG_DEBUG, "Setting max-tcp-clients to %d", max_clients);
+		port->max_client_connections = max_clients;
+	} else {
+		log(EVDNS_LOG_WARN, "Invalid option name (%s)", option);
+		res = -1;
+	}
+end:
+	EVDNS_UNLOCK(port);
+	return res;
+}
+
 static int
 evdns_base_set_option_impl(struct evdns_base *base,
     const char *option, const char *val, int flags)
@@ -4170,6 +4222,14 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		log(EVDNS_LOG_DEBUG, "Setting SO_SNDBUF to %s", val);
 		base->so_sndbuf = buf;
+	} else if (!strcmp(option, "use-vc")) {
+		if (!(flags & DNS_OPTION_MISC)) return 0;
+		log(EVDNS_LOG_DEBUG, "Setting use-vc option");
+		base->global_tcp_flags |= DNS_QUERY_USEVC;
+	} else if (!strcmp(option, "ingore-tc")) {
+		if (!(flags & DNS_OPTION_MISC)) return 0;
+		log(EVDNS_LOG_DEBUG, "Setting ignore-tc option");
+		base->global_tcp_flags |= DNS_QUERY_IGNTC;
 	}
 	return 0;
 }

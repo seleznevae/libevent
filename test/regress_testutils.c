@@ -94,10 +94,9 @@ regress_get_socket_port(evutil_socket_t fd)
 }
 
 struct evdns_server_port *
-regress_get_dnsserver(struct event_base *base,
+regress_get_udp_dnsserver(struct event_base *base,
     ev_uint16_t *portnum,
     evutil_socket_t *psock,
-    int socket_type,
     evdns_request_callback_fn_type cb,
     void *arg)
 {
@@ -105,19 +104,12 @@ regress_get_dnsserver(struct event_base *base,
 	evutil_socket_t sock;
 	struct sockaddr_in my_addr;
 
-	if (socket_type != SOCK_DGRAM && socket_type != SOCK_STREAM)
-		return NULL;
-
-	sock = socket(AF_INET, socket_type, 0);
+	sock = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sock < 0) {
 		tt_abort_perror("socket");
 	}
 
 	evutil_make_socket_nonblocking(sock);
-	if (socket_type == SOCK_STREAM && evutil_make_listen_socket_reuseable(sock)) {
-		evutil_closesocket(sock);
-		tt_abort_perror("make_listen_socket_reuseable");
-	}
 
 	memset(&my_addr, 0, sizeof(my_addr));
 	my_addr.sin_family = AF_INET;
@@ -135,6 +127,45 @@ regress_get_dnsserver(struct event_base *base,
 
 	return port;
 end:
+	return NULL;
+}
+
+static struct evdns_server_port *
+regress_get_tcp_dnsserver(struct event_base *base,
+	ev_uint16_t *portnum,
+	evutil_socket_t *psock,
+	evdns_request_callback_fn_type cb,
+	void *arg)
+{
+	struct evdns_server_port *port = NULL;
+	evutil_socket_t sock;
+	struct sockaddr_in my_addr;
+	struct evconnlistener *listener;
+
+	memset(&my_addr, 0, sizeof(my_addr));
+	my_addr.sin_family = AF_INET;
+	my_addr.sin_port = htons(*portnum);
+	my_addr.sin_addr.s_addr = htonl(0x7f000001UL);
+
+	listener = evconnlistener_new_bind(base, NULL, NULL,
+			LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, 128,
+			(struct sockaddr*)&my_addr, sizeof(my_addr));
+	if (!listener)
+		goto end;
+	port = evdns_add_server_port_with_listener(base, listener, 0, cb, arg);
+	if (!port)
+		goto end;
+
+	sock = evconnlistener_get_fd(listener);
+	if (!*portnum)
+		*portnum = regress_get_socket_port(sock);
+	if (psock)
+		*psock = sock;
+
+	return port;
+end:
+	if (listener)
+		evconnlistener_free(listener);
 	return NULL;
 }
 
@@ -244,14 +275,14 @@ regress_dnsserver(struct event_base *base, ev_uint16_t *port,
 		goto error;
 
 	if (tcp_seach_table) {
-		tcp_dns_port = regress_get_dnsserver(base, port, &tcp_dns_sock, SOCK_STREAM,
+		tcp_dns_port = regress_get_tcp_dnsserver(base, port, &tcp_dns_sock,
 			regress_dns_server_cb, tcp_seach_table);
 		if (!tcp_dns_port)
 			goto error;
 	}
 
 	if (udp_seach_table) {
-		udp_dns_port = regress_get_dnsserver(base, port, &udp_dns_sock, SOCK_DGRAM,
+		udp_dns_port = regress_get_udp_dnsserver(base, port, &udp_dns_sock,
 			regress_dns_server_cb, udp_seach_table);
 		if (!udp_dns_port)
 			goto error;
