@@ -541,8 +541,7 @@ static struct client_tcp_connection*
 evdns_add_tcp_client(struct evdns_server_port *port, struct bufferevent *bev)
 {
 	struct client_tcp_connection *client;
-	if (!port || !bev)
-		goto error;
+	EVUTIL_ASSERT(port && bev);
 	if (port->max_client_connections == port->client_connections_count)
 		goto error;
 
