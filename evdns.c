@@ -1023,7 +1023,7 @@ reply_schedule_callback(struct request *const req, u32 ttl, u32 err, struct repl
 }
 
 static int
-client_retransmit_through_tcp (struct evdns_request *const handle) 
+client_retransmit_through_tcp(struct evdns_request *handle)
 {
 	struct request *req = handle->current_req;
 	struct evdns_base *base = req->base;
@@ -1055,6 +1055,7 @@ static void
 reply_handle(struct request *const req, u16 flags, u32 ttl, struct reply *reply) {
 	int error;
 	char addrbuf[128];
+	int retransmit_via_tcp = 0;
 	static const int error_codes[] = {
 		DNS_ERR_FORMAT, DNS_ERR_SERVERFAILED, DNS_ERR_NOTEXIST,
 		DNS_ERR_NOTIMPL, DNS_ERR_REFUSED
@@ -1067,6 +1068,7 @@ reply_handle(struct request *const req, u16 flags, u32 ttl, struct reply *reply)
 		/* there was an error */
 		if (flags & _TC_MASK) {
 			error = DNS_ERR_TRUNCATED;
+			retransmit_via_tcp = (req->handle->tcp_flags & (DNS_QUERY_IGNTC | DNS_QUERY_USEVC)) == 0;
 		} else if (flags & _RCODE_MASK) {
 			u16 error_code = (flags & _RCODE_MASK) - 1;
 			if (error_code > 4) {
@@ -1116,27 +1118,26 @@ reply_handle(struct request *const req, u16 flags, u32 ttl, struct reply *reply)
 			nameserver_up(req->ns);
 		}
 
-		/* we should skip next searching if response has been truncated */
-		if (error != DNS_ERR_TRUNCATED) {
-			if (req->handle->search_state &&
-				req->request_type != TYPE_PTR) {
-				/* if we have a list of domains to search in,
-				* try the next one */
-				if (!search_try_next(req->handle)) {
-					/* a new request was issued so this
-					* request is finished and */
-					/* the user callback will be made when
-					* that request (or a */
-					/* child of it) finishes. */
-					return;
-				}
-			}
-		} else  if ((req->handle->tcp_flags & (DNS_QUERY_IGNTC | DNS_QUERY_USEVC)) == 0) {
+		if (retransmit_via_tcp) {
 			log(EVDNS_LOG_DEBUG, "Recieved truncated reply(flags 0x%x, transanc ID: %d). Retransmiting via TCP.",
 				req->handle->tcp_flags, req->trans_id);
 			req->handle->tcp_flags |= DNS_QUERY_USEVC;
-			client_retransmit_through_tcp (req->handle);
+			client_retransmit_through_tcp(req->handle);
 			return;
+		}
+
+		if (req->handle->search_state &&
+		    req->request_type != TYPE_PTR) {
+			/* if we have a list of domains to search in,
+			 * try the next one */
+			if (!search_try_next(req->handle)) {
+				/* a new request was issued so this
+				 * request is finished and */
+				/* the user callback will be made when
+				 * that request (or a */
+				/* child of it) finishes. */
+				return;
+			}
 		}
 
 		/* all else failed. Pass the failure up */
