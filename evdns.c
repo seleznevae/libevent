@@ -2794,7 +2794,7 @@ evdns_request_transmit_through_tcp(struct request *req, struct nameserver *serve
 		goto fail;
 	if (bufferevent_write(conn->bev, (void*)req->request, req->request_len) )
 		goto fail;
-	if (bufferevent_enable(conn->bev, EV_READ|EV_WRITE))
+	if (bufferevent_enable(conn->bev, EV_READ | EV_WRITE))
 		goto fail;
 	if (evtimer_add(&req->timeout_event, &req->base->global_timeout) < 0)
 		goto fail;
