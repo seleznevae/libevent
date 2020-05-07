@@ -2119,7 +2119,7 @@ incoming_conn_cb(struct evconnlistener *listener, evutil_socket_t fd,
 	cd->state = TS_CONNECTED;
 	bufferevent_setwatermark(bev, EV_READ, sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, server_tcp_read_packet_cb, NULL, server_tcp_event_cb, (void *)client);
-	bufferevent_enable(bev, EV_READ | EV_WRITE);
+	bufferevent_enable(bev, EV_READ);
 
 	return;
 error:
@@ -2794,7 +2794,7 @@ evdns_request_transmit_through_tcp(struct request *req, struct nameserver *serve
 		goto fail;
 	if (bufferevent_write(conn->bev, (void*)req->request, req->request_len) )
 		goto fail;
-	if (bufferevent_enable(conn->bev, EV_READ | EV_WRITE))
+	if (bufferevent_enable(conn->bev, EV_READ))
 		goto fail;
 	if (evtimer_add(&req->timeout_event, &req->base->global_timeout) < 0)
 		goto fail;
