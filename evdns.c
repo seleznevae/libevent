@@ -2006,7 +2006,7 @@ tcp_read_message(struct tcp_connection *conn, u8 **msg, int *msg_len)
 
 	/* reading new packet size */
 	if (!conn->awaiting_packet_size) {
-		if (evbuffer_get_length(input) < 2)
+		if (evbuffer_get_length(input) < sizeof(ev_uint16_t))
 			goto awaiting_next;
 
 		bufferevent_read(bev, (void*)&conn->awaiting_packet_size,
@@ -2071,7 +2071,7 @@ server_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 	}
 
 	bufferevent_setwatermark(bev, EV_READ,
-			conn->awaiting_packet_size ? conn->awaiting_packet_size : 2, 0);
+			conn->awaiting_packet_size ? conn->awaiting_packet_size : sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, server_tcp_read_packet_cb, NULL, server_tcp_event_cb, ctx);
 	EVDNS_UNLOCK(port);
 }
@@ -2116,7 +2116,7 @@ incoming_conn_cb(struct evconnlistener *listener, evutil_socket_t fd,
 	cd = &client->connection;
 
 	cd->state = TS_CONNECTED;
-	bufferevent_setwatermark(bev, EV_READ, 2, 0);
+	bufferevent_setwatermark(bev, EV_READ, sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, server_tcp_read_packet_cb, NULL, server_tcp_event_cb, (void *)client);
 	bufferevent_enable(bev, EV_READ | EV_WRITE);
 
@@ -2736,7 +2736,7 @@ client_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 	}
 
 	bufferevent_setwatermark(bev, EV_READ,
-		conn->awaiting_packet_size ? conn->awaiting_packet_size : 2, 0);
+		conn->awaiting_packet_size ? conn->awaiting_packet_size : sizeof(ev_uint16_t), 0);
 	bufferevent_setcb(bev, client_tcp_read_packet_cb, NULL, client_tcp_event_cb, ctx);
 	EVDNS_UNLOCK(server->base);
 }
@@ -2762,7 +2762,7 @@ client_tcp_event_cb(struct bufferevent *bev, short events, void *ctx) {
 		conn->state = TS_CONNECTED;
 		evutil_make_socket_nonblocking (bufferevent_getfd (bev));
 		bufferevent_setcb (bev, client_tcp_read_packet_cb, NULL, client_tcp_event_cb, server);
-		bufferevent_setwatermark (bev, EV_READ, 2, 0);
+		bufferevent_setwatermark (bev, EV_READ, sizeof(ev_uint16_t), 0);
 	}
 	EVDNS_UNLOCK(server->base);
 }
