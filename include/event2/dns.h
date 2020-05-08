@@ -651,10 +651,10 @@ typedef void (*evdns_request_callback_fn_type)(struct evdns_server_request *, vo
 #define EVDNS_FLAGS_AA	0x400
 #define EVDNS_FLAGS_RD	0x080
 
-/** Create a new DNS server port.
+/** Create a new UDP DNS server port.
 
     @param base The event base to handle events for the server port.
-    @param socket A UDP or TCP socket to accept DNS requests.
+    @param socket A UDP socket to accept DNS requests.
     @param flags Always 0 for now.
     @param callback A function to invoke whenever we get a DNS request
       on the socket.
@@ -664,6 +664,25 @@ typedef void (*evdns_request_callback_fn_type)(struct evdns_server_request *, vo
  */
 EVENT2_EXPORT_SYMBOL
 struct evdns_server_port *evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket, int flags, evdns_request_callback_fn_type callback, void *user_data);
+
+struct evconnlistener;
+
+/** Create a new TCP DNS server port.
+
+    @param base The event base to handle events for the server port.
+    @param listener A TCP listener to accept DNS requests.
+    @param flags Always 0 for now.
+    @param callback A function to invoke whenever we get a DNS request
+      on the socket.
+    @param user_data Data to pass to the callback.
+    @return an evdns_server_port structure for this server port or NULL if
+      an error occurred.
+ */
+EVENT2_EXPORT_SYMBOL
+struct evdns_server_port *evdns_add_server_port_with_listener(
+    struct event_base *base, struct evconnlistener *listener, int flags,
+    evdns_request_callback_fn_type callback, void *user_data);
+
 /** Close down a DNS server port, and free associated structures. */
 EVENT2_EXPORT_SYMBOL
 void evdns_close_server_port(struct evdns_server_port *port);

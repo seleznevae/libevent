@@ -1991,6 +1991,36 @@ evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket,
 	return port;
 }
 
+/* exported function */
+struct evdns_server_port *
+evdns_add_server_port_with_listener(struct event_base *base, struct evconnlistener *listener, int flags, evdns_request_callback_fn_type cb, void *user_data)
+{
+	struct evdns_server_port *port;
+	if (!listener)
+		return NULL;
+	if (flags)
+		return NULL; /* flags not yet implemented */
+
+	if (!(port = mm_calloc(1, sizeof(struct evdns_server_port))))
+		return NULL;
+	port->socket = -1;
+	port->refcnt = 1;
+	port->choked = 0;
+	port->closing = 0;
+	port->user_callback = cb;
+	port->user_data = user_data;
+	port->pending_replies = NULL;
+	port->event_base = base;
+	port->max_client_connections = MAX_CLIENT_CONNECTIONS;
+	port->client_connections_count = 0;
+	LIST_INIT(&port->client_connections);
+	port->listener = listener;
+	evconnlistener_set_cb(port->listener, incoming_conn_cb, port);
+
+	EVTHREAD_ALLOC_LOCK(port->lock, EVTHREAD_LOCKTYPE_RECURSIVE);
+	return port;
+}
+
 static void
 server_tcp_event_cb(struct bufferevent *bev, short events, void *ctx);
 

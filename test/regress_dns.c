@@ -700,7 +700,7 @@ dns_search_cancel_test(void *arg)
 	struct generic_dns_callback_result r1;
 	char buf[64];
 
-	port = regress_get_dnsserver(base, &portnum, NULL, SOCK_DGRAM,
+	port = regress_get_udp_dnsserver(base, &portnum, NULL,
 	    search_cancel_server_cb, NULL);
 	tt_assert(port);
 	evutil_snprintf(buf, sizeof(buf), "127.0.0.1:%d", (int)portnum);
@@ -777,7 +777,7 @@ dns_retry_test_impl(void *arg, int flags)
 
 	struct generic_dns_callback_result r1;
 
-	port = regress_get_dnsserver(base, &portnum, NULL, SOCK_DGRAM,
+	port = regress_get_udp_dnsserver(base, &portnum, NULL,
 	    fail_server_cb, &drop_count);
 	tt_assert(port);
 	evutil_snprintf(buf, sizeof(buf), "127.0.0.1:%d", (int)portnum);
@@ -874,10 +874,10 @@ dns_reissue_test_impl(void *arg, int flags)
 	ev_uint16_t portnum1 = 0, portnum2=0;
 	char buf1[64], buf2[64];
 
-	port1 = regress_get_dnsserver(base, &portnum1, NULL, SOCK_DGRAM,
+	port1 = regress_get_udp_dnsserver(base, &portnum1, NULL,
 	    regress_dns_server_cb, internal_error_table);
 	tt_assert(port1);
-	port2 = regress_get_dnsserver(base, &portnum2, NULL, SOCK_DGRAM,
+	port2 = regress_get_udp_dnsserver(base, &portnum2, NULL,
 	    regress_dns_server_cb, reissue_table);
 	tt_assert(port2);
 	evutil_snprintf(buf1, sizeof(buf1), "127.0.0.1:%d", (int)portnum1);
@@ -953,7 +953,7 @@ dns_inflight_test_impl(void *arg, int flags)
 	struct generic_dns_callback_result r[20];
 	int i;
 
-	dns_port = regress_get_dnsserver(base, &portnum, NULL, SOCK_DGRAM,
+	dns_port = regress_get_udp_dnsserver(base, &portnum, NULL,
 		regress_dns_server_cb, reissue_table);
 	tt_assert(dns_port);
 	if (disable_when_inactive) {
@@ -1342,7 +1342,7 @@ test_bufferevent_connect_hostname(void *arg)
 	listener_port = regress_get_socket_port(
 		evconnlistener_get_fd(listener));
 
-	port = regress_get_dnsserver(data->base, &dns_port, NULL, SOCK_DGRAM,
+	port = regress_get_udp_dnsserver(data->base, &dns_port, NULL,
 	    be_getaddrinfo_server_cb, &n_dns);
 	tt_assert(port);
 	tt_int_op(dns_port, >=, 0);
@@ -1653,7 +1653,7 @@ test_getaddrinfo_async(void *arg)
 
 	/* 2. Okay, now we can actually test the asynchronous resolver. */
 	/* Start a dummy local dns server... */
-	port = regress_get_dnsserver(data->base, &dns_port, NULL, SOCK_DGRAM,
+	port = regress_get_udp_dnsserver(data->base, &dns_port, NULL,
 	    be_getaddrinfo_server_cb, &n_dns_questions);
 	tt_assert(port);
 	tt_int_op(dns_port, >=, 0);
@@ -2177,7 +2177,7 @@ dns_client_fail_requests_test(void *arg)
 	struct generic_dns_callback_result r[20];
 	unsigned i;
 
-	dns_port = regress_get_dnsserver(base, &portnum, NULL, SOCK_DGRAM,
+	dns_port = regress_get_udp_dnsserver(base, &portnum, NULL,
 		regress_dns_server_cb, reissue_table);
 	tt_assert(dns_port);
 
@@ -2225,7 +2225,7 @@ dns_client_fail_requests_getaddrinfo_test(void *arg)
 	struct generic_dns_callback_result r[20];
 	int i;
 
-	dns_port = regress_get_dnsserver(base, &portnum, NULL, SOCK_DGRAM,
+	dns_port = regress_get_udp_dnsserver(base, &portnum, NULL,
 		regress_dns_server_cb, reissue_table);
 	tt_assert(dns_port);
 
@@ -2327,7 +2327,7 @@ getaddrinfo_race_gotresolve_test(void *arg)
 	if (evthread_make_base_notifiable(rp.base) < 0)
 		tt_abort_msg("Couldn't make base notifiable!");
 
-	dns_port = regress_get_dnsserver(rp.base, &portnum, NULL, SOCK_DGRAM,
+	dns_port = regress_get_udp_dnsserver(rp.base, &portnum, NULL,
 									 regress_dns_server_cb, reissue_table);
 	tt_assert(dns_port);
 

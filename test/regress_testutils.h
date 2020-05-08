@@ -38,10 +38,9 @@ struct regress_dns_server_table {
 };
 
 struct evdns_server_port *
-regress_get_dnsserver(struct event_base *base,
+regress_get_udp_dnsserver(struct event_base *base,
     ev_uint16_t *portnum,
     evutil_socket_t *psock,
-    int socket_type,
     evdns_request_callback_fn_type cb,
     void *arg);
 
