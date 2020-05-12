@@ -2075,6 +2075,7 @@ server_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 {
 	u8 *msg = NULL;
 	int msg_len = 0;
+	int rc;
 	struct client_tcp_connection *client = (struct client_tcp_connection *)ctx;
 	struct evdns_server_port *port = client->port;
 	struct tcp_connection *conn = &client->connection;
@@ -2085,8 +2086,9 @@ server_tcp_read_packet_cb(struct bufferevent *bev, void *ctx)
 		if (tcp_read_message(conn, &msg, &msg_len)) {
 			log(EVDNS_LOG_MSG, "Closing client connection %p due to error", bev);
 			evdns_remove_tcp_client(port, client);
+			rc = port->refcnt;
 			EVDNS_UNLOCK(port);
-			if (!port->refcnt)
+			if (!rc)
 				server_port_free(port);
 			return;
 		}
@@ -2112,15 +2114,17 @@ server_tcp_event_cb(struct bufferevent *bev, short events, void *ctx)
 {
 	struct client_tcp_connection *client = (struct client_tcp_connection *)ctx;
 	struct evdns_server_port *port = client->port;
+	int rc;
 	EVUTIL_ASSERT(port && bev);
 	EVDNS_LOCK(port);
 	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
-		evdns_remove_tcp_client(port, client);
-		if (!port->refcnt)
-			server_port_free (port);
 		log(EVDNS_LOG_DEBUG, "Closing connection %p", bev);
+		evdns_remove_tcp_client(port, client);
 	}
+	rc = port->refcnt;
 	EVDNS_UNLOCK(port);
+	if (!rc)
+		server_port_free(port);
 }
 
 static void
