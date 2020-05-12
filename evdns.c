@@ -1942,12 +1942,6 @@ struct evdns_server_port *
 evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket, int flags, evdns_request_callback_fn_type cb, void *user_data)
 {
 	struct evdns_server_port *port;
-	int sock_type;
-	ev_socklen_t sock_type_len = sizeof(sock_type);
-	/* Check that socket is a UDP or TCP socket */
-	if (getsockopt(socket, SOL_SOCKET, SO_TYPE, (void*)&sock_type, &sock_type_len)
-			|| (sock_type != SOCK_DGRAM && sock_type != SOCK_STREAM))
-		return NULL;
 	if (flags)
 		return NULL; /* flags not yet implemented */
 	if (!(port = mm_malloc(sizeof(struct evdns_server_port))))
@@ -1965,28 +1959,14 @@ evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket,
 	port->event_base = base;
 	port->max_client_connections = MAX_CLIENT_CONNECTIONS;
 	port->client_connections_count = 0;
-
-	if (sock_type == SOCK_DGRAM) {
-		/* UDP DNS server */
-		event_assign(&port->event, port->event_base,
-					 port->socket, EV_READ | EV_PERSIST,
-					 server_port_ready_callback, port);
-		if (event_add(&port->event, NULL) < 0) {
-			mm_free(port);
-			return NULL;
-		}
-	} else {
-		/* TCP DNS server */
-		port->socket = -1;
-		port->listener = evconnlistener_new(base, incoming_conn_cb, port,
-							LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1, socket);
-		if (!port->listener) {
-			mm_free(port);
-			return NULL;
-		}
-	}
 	LIST_INIT(&port->client_connections);
-
+	event_assign(&port->event, port->event_base,
+				 port->socket, EV_READ | EV_PERSIST,
+				 server_port_ready_callback, port);
+	if (event_add(&port->event, NULL) < 0) {
+		mm_free(port);
+		return NULL;
+	}
 	EVTHREAD_ALLOC_LOCK(port->lock, EVTHREAD_LOCKTYPE_RECURSIVE);
 	return port;
 }
