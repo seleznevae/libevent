@@ -160,7 +160,7 @@
 #define SERVER_IDLE_CONN_TIMEOUT 10
 /* Timeout in seconds for idle TCP connections that client keeps alive. */
 #define CLIENT_IDLE_CONN_TIMEOUT 5
-/* Maximum number of simultaneous TCP client connections that DNS server can hold. */
+/* Default maximum number of simultaneous TCP client connections that DNS server can hold. */
 #define MAX_CLIENT_CONNECTIONS 10
 
 /* Persistent handle.  We keep this separate from 'struct request' since we
@@ -4110,6 +4110,37 @@ str_matches_option(const char *s1, const char *optionname)
 		return !strncmp(s1, optionname, optlen);
 	else
 		return 0;
+}
+
+/* exported function */
+int
+evdns_server_port_set_option(struct evdns_server_port *port,
+	const char *option, const char *val)
+{
+	int res = 0;
+	EVDNS_LOCK(port);
+	if (str_matches_option(option, "max-tcp-clients:")) {
+		const int max_clients = strtoint(val);
+		if (max_clients < 0) {
+			log(EVDNS_LOG_WARN, "Invalid value %s of max-tcp-clients option",
+				val);
+			res = -1;
+			goto end;
+		}
+		if (!port->listener) {
+			log(EVDNS_LOG_WARN, "max-tcp-clients option can be set only on TCP server");
+			res = -1;
+			goto end;
+		}
+		log(EVDNS_LOG_DEBUG, "Setting max-tcp-clients to %d", max_clients);
+		port->max_client_connections = max_clients;
+	} else {
+		log(EVDNS_LOG_WARN, "Invalid option name (%s)", option);
+		res = -1;
+	}
+end:
+	EVDNS_UNLOCK(port);
+	return res;
 }
 
 static int

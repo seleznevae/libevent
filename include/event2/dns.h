@@ -470,7 +470,7 @@ void evdns_cancel_request(struct evdns_base *base, struct evdns_request *req);
     so-rcvbuf, so-sndbuf, use-vc, ignore-tc.
 
   In versions before Libevent 2.0.3-alpha, the option name needed to end with
-  a colon.
+  a colon. Options without values (use-vc, ingore-tc) shouldn't contain colon.
 
   @param base the evdns_base to which to apply this operation
   @param option the name of the configuration option to be modified
@@ -686,6 +686,25 @@ struct evdns_server_port *evdns_add_server_port_with_listener(
 /** Close down a DNS server port, and free associated structures. */
 EVENT2_EXPORT_SYMBOL
 void evdns_close_server_port(struct evdns_server_port *port);
+
+/**
+  Set the value of a configuration option for the DNS server.
+
+  The currently available configuration options are:
+
+  - max-tcp-clients - maximum number of simultaneous tcp connections
+	(clients) that server can hold (default value = 10). Can be set
+	only for TCP DNS server.
+
+  Option names are allowed to end with colon.
+
+  @param port the evdns_server_port to which to apply this operation
+  @param option the name of the configuration option to be modified
+  @param val the value to be set
+  @return 0 if successful, or -1 if an error occurred
+ */
+EVENT2_EXPORT_SYMBOL
+int evdns_server_port_set_option(struct evdns_server_port *port, const char *option, const char *val);
 
 /** Sets some flags in a reply we're building.
     Allows setting of the AA or RD flags
