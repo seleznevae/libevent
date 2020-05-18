@@ -690,23 +690,39 @@ EVENT2_EXPORT_SYMBOL
 void evdns_close_server_port(struct evdns_server_port *port);
 
 /**
-  Set the value of a configuration option for the DNS server.
+ * List of configurable evdns_server_port options.
+ *
+ * @see evdns_server_port_set_option()
+ */
+enum evdns_server_option {
+	/**
+	 * Maximum number of simultaneous tcp connections (clients)
+	 * that server can hold. Can be set only for TCP DNS server.
+	 * Valid value: non negative int.
+	 * Default value: 10.
+	 */
+	EVDNS_SOPT_TCP_MAX_CLIENTS,
+	/**
+	 * Idle timeout of incoming TCP connections. If client doesn't
+	 * send any requests via the connection during this period
+	 * connection is closed by the server.
+	 * Valid value: non negative double (in seconds).
+	 * Default value: 10.0 (s).
+	 */
+	EVDNS_SOPT_TCP_IDLE_TIMEOUT,
+};
 
-  The currently available configuration options are:
+/**
+   Configure DNS server.
 
-  - max-tcp-clients - maximum number of simultaneous tcp connections
-	(clients) that server can hold (default value = 10). Can be set
-	only for TCP DNS server.
-
-  Option names are allowed to end with colon.
-
-  @param port the evdns_server_port to which to apply this operation
-  @param option the name of the configuration option to be modified
-  @param val the value to be set
-  @return 0 if successful, or -1 if an error occurred
+   @param port the evdns_server_port to which to apply this operation
+   @param option @see evdns_server_option for the list of possible options
+   @param val pointer to the value of the option (@see evdns_server_option
+	  for possible values)
+   @return 0 if successful, or -1 if an error occurred
  */
 EVENT2_EXPORT_SYMBOL
-int evdns_server_port_set_option(struct evdns_server_port *port, const char *option, const char *val);
+int evdns_server_port_set_option(struct evdns_server_port *port, enum evdns_server_option option, void *val);
 
 /** Sets some flags in a reply we're building.
     Allows setting of the AA or RD flags

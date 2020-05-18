@@ -2507,7 +2507,7 @@ test_tcp_resolve_pipeline(void *arg)
 	tt_assert(regress_dnsserver(base, &portnum, search_table, tcp_search_table));
 	evutil_snprintf(buf, sizeof(buf), "127.0.0.1:%d", (int)portnum);
 	tt_assert(!evdns_base_nameserver_ip_add(dns, buf));
-	tt_assert(!evdns_base_set_option(dns, "use-vc", ""));
+	tt_assert(!evdns_base_set_option(dns, "use-vc", NULL));
 
 	for (i = 0; i < 3; ++i) {
 		reqs[i] = evdns_base_resolve_ipv4(

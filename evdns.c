@@ -287,6 +287,7 @@ struct evdns_server_port {
 	LIST_HEAD(client_list, client_tcp_connection) client_connections;
 	int client_connections_count;
 	int max_client_connections;
+	struct timeval tcp_idle_timeout;
 
 #ifndef EVENT__DISABLE_THREAD_SUPPORT
 	void *lock;
@@ -1956,6 +1957,8 @@ evdns_add_server_port_with_base(struct event_base *base, evutil_socket_t socket,
 	port->pending_replies = NULL;
 	port->event_base = base;
 	port->max_client_connections = MAX_CLIENT_CONNECTIONS;
+	port->tcp_idle_timeout.tv_sec = SERVER_IDLE_CONN_TIMEOUT;
+	port->tcp_idle_timeout.tv_usec = 0;
 	port->client_connections_count = 0;
 	LIST_INIT(&port->client_connections);
 	event_assign(&port->event, port->event_base,
@@ -2113,15 +2116,12 @@ incoming_conn_cb(struct evconnlistener *listener, evutil_socket_t fd,
 	struct bufferevent *bev = bufferevent_socket_new(port->event_base, fd, BEV_OPT_CLOSE_ON_FREE);
 	struct client_tcp_connection *client = NULL;
 	struct tcp_connection *cd = NULL;
-	struct timeval timeout;
 
 	if (!bev)
 		goto error;
 	log(EVDNS_LOG_DEBUG, "New incoming client connection %p", bev);
 
-	timeout.tv_sec = SERVER_IDLE_CONN_TIMEOUT;
-	timeout.tv_usec = 0;
-	bufferevent_set_timeouts(bev, &timeout, &timeout);
+	bufferevent_set_timeouts(bev, &port->tcp_idle_timeout, &port->tcp_idle_timeout);
 
 	client = evdns_add_tcp_client(port, bev);
 	if (!client)
@@ -4113,28 +4113,46 @@ str_matches_option(const char *s1, const char *optionname)
 /* exported function */
 int
 evdns_server_port_set_option(struct evdns_server_port *port,
-	const char *option, const char *val)
+	enum evdns_server_option option, void *val)
 {
 	int res = 0;
 	EVDNS_LOCK(port);
-	if (str_matches_option(option, "max-tcp-clients:")) {
-		const int max_clients = strtoint(val);
-		if (max_clients < 0) {
-			log(EVDNS_LOG_WARN, "Invalid value %s of max-tcp-clients option",
-				val);
-			res = -1;
-			goto end;
-		}
+	switch (option) {
+	case EVDNS_SOPT_TCP_MAX_CLIENTS:
 		if (!port->listener) {
-			log(EVDNS_LOG_WARN, "max-tcp-clients option can be set only on TCP server");
+			log(EVDNS_LOG_WARN, "EVDNS_SOPT_TCP_MAX_CLIENTS option can be set only on TCP server");
 			res = -1;
 			goto end;
 		}
-		log(EVDNS_LOG_DEBUG, "Setting max-tcp-clients to %d", max_clients);
-		port->max_client_connections = max_clients;
-	} else {
-		log(EVDNS_LOG_WARN, "Invalid option name (%s)", option);
+		if (*(int *)val < 0) {
+			log(EVDNS_LOG_WARN, "Invalid value %d of EVDNS_SOPT_TCP_MAX_CLIENTS option",
+				*(int *)val);
+			res = -1;
+			goto end;
+		}
+		log(EVDNS_LOG_DEBUG, "Setting EVDNS_SOPT_TCP_MAX_CLIENTS to %d", *(int *)val);
+		port->max_client_connections = *(int *)val;
+		break;
+	case EVDNS_SOPT_TCP_IDLE_TIMEOUT:
+		if (!port->listener) {
+			log(EVDNS_LOG_WARN, "EVDNS_SOPT_TCP_IDLE_TIMEOUT option can be set only on TCP server");
+			res = -1;
+			goto end;
+		}
+		if (*(double *)val < 0 || *(double *)val > INT_MAX) {
+			log(EVDNS_LOG_WARN, "Invalid value %f of EVDNS_SOPT_TCP_IDLE_TIMEOUT option",
+				*(double *)val);
+			res = -1;
+			goto end;
+		}
+		log(EVDNS_LOG_DEBUG, "Setting EVDNS_SOPT_TCP_IDLE_TIMEOUT to %f", *(double *)val);
+		port->tcp_idle_timeout.tv_sec = *(double *)val;
+		port->tcp_idle_timeout.tv_usec = (*(double *)val - (double)port->tcp_idle_timeout.tv_sec) * 1000 * 1000;
+		break;
+	default:
+		log(EVDNS_LOG_WARN, "Invalid DNS server option %d", (int)option);
 		res = -1;
+		break;
 	}
 end:
 	EVDNS_UNLOCK(port);
@@ -4230,7 +4248,7 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		if (val) return -1;
 		log(EVDNS_LOG_DEBUG, "Setting use-vc option");
 		base->global_tcp_flags |= DNS_QUERY_USEVC;
-	} else if (!strcmp(option, "ingore-tc")) {
+	} else if (!strcmp(option, "ignore-tc")) {
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		if (val) return -1;
 		log(EVDNS_LOG_DEBUG, "Setting ignore-tc option");
