@@ -4191,6 +4191,7 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		base->global_max_retransmits = retries;
 	} else if (str_matches_option(option, "randomize-case:")) {
 		int randcase = strtoint(val);
+		if (randcase == -1) return -1;
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		base->global_randomize_case = randcase;
 	} else if (str_matches_option(option, "bind-to:")) {
@@ -4214,20 +4215,24 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		    sizeof(tv));
 	} else if (str_matches_option(option, "so-rcvbuf:")) {
 		int buf = strtoint(val);
+		if (buf < 0) return -1;
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		log(EVDNS_LOG_DEBUG, "Setting SO_RCVBUF to %s", val);
 		base->so_rcvbuf = buf;
 	} else if (str_matches_option(option, "so-sndbuf:")) {
 		int buf = strtoint(val);
+		if (buf < 0) return -1;
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		log(EVDNS_LOG_DEBUG, "Setting SO_SNDBUF to %s", val);
 		base->so_sndbuf = buf;
 	} else if (!strcmp(option, "use-vc")) {
 		if (!(flags & DNS_OPTION_MISC)) return 0;
+		if (val) return -1;
 		log(EVDNS_LOG_DEBUG, "Setting use-vc option");
 		base->global_tcp_flags |= DNS_QUERY_USEVC;
 	} else if (!strcmp(option, "ingore-tc")) {
 		if (!(flags & DNS_OPTION_MISC)) return 0;
+		if (val) return -1;
 		log(EVDNS_LOG_DEBUG, "Setting ignore-tc option");
 		base->global_tcp_flags |= DNS_QUERY_IGNTC;
 	}

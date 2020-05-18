@@ -2627,6 +2627,105 @@ end:
 		evdns_base_free(dns_base, 0);
 }
 
+static void
+test_set_option(void *arg)
+{
+	struct basic_test_data *data = arg;
+	struct evdns_base *dns_base;
+
+	dns_base = evdns_base_new(data->base, 0);
+	tt_assert(dns_base);
+
+#define SUCCESS 0
+#define FAIL -1
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "ndots", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "ndots:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "ndots:", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "ndots", "foo"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "ndots", "3.14"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "timeout:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "timeout", "0.001"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "timeout", "3.14"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "timeout", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "timeout", "0"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "timeout", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "getaddrinfo-allow-skew:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "getaddrinfo-allow-skew", "0.001"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "getaddrinfo-allow-skew", "3.14"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "getaddrinfo-allow-skew", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "getaddrinfo-allow-skew", "0"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "getaddrinfo-allow-skew", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "max-timeouts:", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "max-timeouts:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "max-timeouts", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "max-timeouts", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "max-timeouts", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "max-inflight:", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "max-inflight:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "max-inflight", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "max-inflight", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "max-inflight", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "attempts:", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "attempts:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "attempts", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "attempts", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "attempts", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "randomize-case:", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "randomize-case:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "randomize-case", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "randomize-case", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "randomize-case", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "bind-to:", "8.8.8.8:80"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "bind-to", "1.2.3.4"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "bind-to", "::1:82"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "bind-to", "3::4"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "bind-to", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "bind-to", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "initial-probe-timeout:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "initial-probe-timeout", "0.001"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "initial-probe-timeout", "3.14"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "initial-probe-timeout", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "initial-probe-timeout", "0"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "initial-probe-timeout", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "so-rcvbuf:", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "so-rcvbuf:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "so-rcvbuf", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "so-rcvbuf", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "so-rcvbuf", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "so-sndbuf:", "0"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "so-sndbuf:", "1"));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "so-sndbuf", "10000"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "so-sndbuf", "3.14"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "so-sndbuf", "foo"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "use-vc", NULL));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "use-vc:", NULL));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "use-vc", "foo"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "use-vc", "0"));
+
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "ignore-tc", NULL));
+	tt_assert(SUCCESS == evdns_base_set_option(dns_base, "ignore-tc:", NULL));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "ignore-tc", "foo"));
+	tt_assert(FAIL == evdns_base_set_option(dns_base, "ignore-tc", "0"));
+
+#undef SUCCESS
+#undef FAIL
+end:
+	if (dns_base)
+		evdns_base_free(dns_base, 0);
+}
+
 #define DNS_LEGACY(name, flags)					       \
 	{ #name, run_legacy_test_fn, flags|TT_LEGACY, &legacy_setup,   \
 		    dns_##name }
@@ -2709,6 +2808,8 @@ struct testcase_t dns_testcases[] = {
 	  TT_FORK | TT_NEED_BASE, &basic_setup, NULL },
 
 	{ "set_SO_RCVBUF_SO_SNDBUF", test_set_so_rcvbuf_so_sndbuf,
+	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
+	{ "set_options", test_set_option,
 	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 
 	END_OF_TESTCASES
