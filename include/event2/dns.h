@@ -471,7 +471,7 @@ void evdns_cancel_request(struct evdns_base *base, struct evdns_request *req);
     ndots, timeout, max-timeouts, max-inflight, attempts, randomize-case,
     bind-to, initial-probe-timeout, getaddrinfo-allow-skew.
 
-	/* dpayne */
+	// dpayne
     ndots - Used to configure searching. Defaults to 1.
     timeout - Timeout for DNS queries, defaults to 5.
     max-timeouts - Maximum allowed timeouts for a namesever. Defaults to 3.
@@ -487,7 +487,7 @@ void evdns_cancel_request(struct evdns_base *base, struct evdns_request *req);
         responses once one of them has been received. Defaults to 3 seconds.
     max-record-len - Maximum size allowed for a UDP response. Uses DNS
         extension to increased the allowed size past 512 bytes. Default is 512.
-	/* dpayne */
+	// dpayne
 
   In versions before Libevent 2.0.3-alpha, the option name needed to end with
   a colon.

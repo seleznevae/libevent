@@ -149,6 +149,11 @@
 
 /* Default UDP Response max packet length */
 #define RFC_MAX_PACKET_LENGTH 512
+/* Reasonable default value for max UDP packets in EDNS (see rfc6891). */
+#define EDNS_DEFAULT_PACKET_LENGTH 1280
+/* Absolute max UDP packet size in EDNS that we can process
+  recommended by https://tools.ietf.org/html/rfc6891#section-6.2.5 */
+#define EDNS_LIMIT_PACKET_LENGTH 4096
 
 #define TYPE_A	       EVDNS_TYPE_A
 #define TYPE_CNAME     5
@@ -1585,9 +1590,9 @@ nameserver_read(struct nameserver *ns) {
 	struct sockaddr_storage ss;
 	ev_socklen_t addrlen = sizeof(ss);
 	char addrbuf[128];
-	ASSERT_LOCKED(ns->base);
 	int max_record_len = ns->base->global_max_record_len;
 	u8 *packet = mm_malloc(max_record_len);
+	ASSERT_LOCKED(ns->base);
 
 	for (;;) {
 		const int r = recvfrom(ns->socket, (void *)packet, max_record_len, 0,
@@ -3413,8 +3418,6 @@ request_new(struct evdns_base *base, struct evdns_request *handle, int type,
 	    const char *name, int flags, evdns_callback_type callback,
 	    void *user_ptr) {
 
-	ASSERT_LOCKED(base);
-
 	const char issuing_now =
 	    (base->global_requests_inflight < base->global_max_requests_inflight) ? 1 : 0;
 
@@ -3428,6 +3431,8 @@ request_new(struct evdns_base *base, struct evdns_request *handle, int type,
 	int rlen;
 	char namebuf[256];
 	(void) flags;
+
+	ASSERT_LOCKED(base);
 
 	if (!req) return NULL;
 
@@ -4293,6 +4298,10 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		base->global_tcp_flags |= DNS_QUERY_IGNTC;
 	} else if (str_matches_option(option, "max-record-len:")) {
 		int max_record_len = strtoint(val);
+		if (max_record_len == -1) return -1;
+		if (max_record_len > EDNS_LIMIT_PACKET_LENGTH) retries = EDNS_LIMIT_PACKET_LENGTH;
+		if (!(flags & DNS_OPTION_MISC)) return 0;
+		log(EVDNS_LOG_DEBUG, "Setting max-record-len to %d", max_record_len);
 		base->global_max_record_len = max_record_len;
 	}
 	return 0;

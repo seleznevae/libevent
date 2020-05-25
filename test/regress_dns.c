@@ -659,7 +659,7 @@ dns_large_udp_test(void *arg)
 		table[i].lower = 0;
 	}
 
-	tt_assert(regress_dnsserver(base, &portnum, table));
+	tt_assert(regress_dnsserver(base, &portnum, table, NULL));
 	evutil_snprintf(buf, sizeof(buf), "127.0.0.1:%d", (int)portnum);
 
 	dns = evdns_base_new(base, 0);
