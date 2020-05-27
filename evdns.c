@@ -328,6 +328,7 @@ struct server_request {
 	struct client_tcp_connection *client; /* Equal to NULL in case of UDP connection. */
 	struct sockaddr_storage addr; /* Where to send the response in case of UDP. Equal to NULL in case of TCP connection.*/
 	ev_socklen_t addrlen; /* length of addr */
+	u16 max_udp_reply_size; /* Maximum size of udp reply that client can handle */
 
 	int n_answer; /* how many answer RRs have been set? */
 	int n_authority; /* how many authority RRs have been set? */
@@ -1434,6 +1435,7 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 {
 	int j = 0;	/* index into packet */
 	u16 t_;	 /* used by the macros */
+	u32 t32_;  /* used by the macros */
 	char tmp_name[256]; /* used by the macros */
 
 	int i;
@@ -1492,6 +1494,23 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 	}
 
 	/* Ignore answers, authority, and additional. */
+	server_req->max_udp_reply_size = RFC_MAX_PACKET_LENGTH;
+	for (i = 0; i < additional; ++i) {
+		u32 ttl = 0;
+		u16 rdlen = 0;
+		u16 type, class;
+
+		SKIP_NAME;
+		GET16(type);
+		GET16(class);
+		GET32(ttl);
+		GET16(rdlen);
+		j += rdlen;
+		if (type == 41 && class > RFC_MAX_PACKET_LENGTH) {
+			server_req->max_udp_reply_size = class;
+			fprintf(stderr, "EDNS encountered; setting max_udp_size to %d\n", (int)class);
+		}
+	}
 
 	server_req->port = port;
 	port->refcnt++;
@@ -2422,9 +2441,9 @@ evdns_server_request_format_response(struct server_request *req, int err)
 		}
 	}
 
-	if (j > RFC_MAX_PACKET_LENGTH && !req->client) {
+	if (j > req->max_udp_reply_size && !req->client) {
 overflow:
-		j = RFC_MAX_PACKET_LENGTH;
+		j = req->max_udp_reply_size;
 		buf[2] |= 0x02; /* set the truncated bit. */
 	}
 
