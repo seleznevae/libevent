@@ -381,7 +381,7 @@ struct evdns_base {
 	int global_randomize_case;
 
 	/* Maximum record length of a DNS packet, default is 512 bytes */
-	int global_max_record_len;
+	u16 global_max_record_len;
 
 	/* The first time that a nameserver fails, how long do we wait before
 	 * probing to see if it has returned?  */
@@ -1589,21 +1589,22 @@ static void
 nameserver_read(struct nameserver *ns) {
 	struct sockaddr_storage ss;
 	ev_socklen_t addrlen = sizeof(ss);
+	u8 packet[EDNS_LIMIT_PACKET_LENGTH];
 	char addrbuf[128];
-	int max_record_len = ns->base->global_max_record_len;
-	u8 *packet = mm_malloc(max_record_len);
+	const size_t max_record_len = MIN(ns->base->global_max_record_len, sizeof(packet));
 	ASSERT_LOCKED(ns->base);
 
 	for (;;) {
-		const int r = recvfrom(ns->socket, (void *)packet, max_record_len, 0,
-			(struct sockaddr *)&ss, &addrlen);
+		const int r = recvfrom(ns->socket, (void*)packet,
+		    max_record_len, 0,
+		    (struct sockaddr*)&ss, &addrlen);
 		if (r < 0) {
 			int err = evutil_socket_geterror(ns->socket);
 			if (EVUTIL_ERR_RW_RETRIABLE(err))
-				goto done;
+				return;
 			nameserver_failed(ns,
 			    evutil_socket_error_to_string(err));
-			goto done;
+			return;
 		}
 		if (evutil_sockaddr_cmp((struct sockaddr*)&ss,
 			(struct sockaddr*)&ns->address, 0)) {
@@ -1612,14 +1613,12 @@ nameserver_read(struct nameserver *ns) {
 			    evutil_format_sockaddr_port_(
 				    (struct sockaddr *)&ss,
 				    addrbuf, sizeof(addrbuf)));
-			goto done;
+			return;
 		}
 
 		ns->timedout = 0;
 		reply_parse(ns->base, packet, r);
 	}
-done:
-	free(packet);
 }
 
 /* Read a packet from a DNS client on a server port s, parse it, and */
@@ -4299,7 +4298,7 @@ evdns_base_set_option_impl(struct evdns_base *base,
 	} else if (str_matches_option(option, "max-record-len:")) {
 		int max_record_len = strtoint(val);
 		if (max_record_len == -1) return -1;
-		if (max_record_len > EDNS_LIMIT_PACKET_LENGTH) retries = EDNS_LIMIT_PACKET_LENGTH;
+		if (max_record_len > EDNS_LIMIT_PACKET_LENGTH) max_record_len = EDNS_LIMIT_PACKET_LENGTH;
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		log(EVDNS_LOG_DEBUG, "Setting max-record-len to %d", max_record_len);
 		base->global_max_record_len = max_record_len;

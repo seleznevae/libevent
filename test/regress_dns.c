@@ -664,6 +664,7 @@ dns_large_udp_test(void *arg)
 
 	dns = evdns_base_new(base, 0);
 	tt_assert(!evdns_base_set_option(dns, "max-record-len", "4096"));
+	//tt_assert(!evdns_base_set_option(dns, "max-record-len", "600"));
 	tt_assert(!evdns_base_nameserver_ip_add(dns, buf));
 
 	evdns_base_search_add(dns, "a.example.com");
