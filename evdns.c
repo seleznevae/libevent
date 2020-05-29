@@ -155,6 +155,9 @@
   recommended by https://tools.ietf.org/html/rfc6891#section-6.2.5 */
 #define EDNS_LIMIT_PACKET_LENGTH 4096
 
+#define EVDNS_ENABLED(base) \
+	(((base)->global_max_record_len) > RFC_MAX_PACKET_LENGTH)
+
 #define TYPE_A	       EVDNS_TYPE_A
 #define TYPE_CNAME     5
 #define TYPE_PTR       EVDNS_TYPE_PTR
@@ -1441,6 +1444,8 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 	int i;
 	u16 trans_id, flags, questions, answers, authority, additional;
 	struct server_request *server_req = NULL;
+	u32 ttl;
+	u16 type, class, rdlen;
 
 	ASSERT_LOCKED(port);
 
@@ -1496,17 +1501,14 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 	/* Ignore answers, authority, and additional. */
 	server_req->max_udp_reply_size = RFC_MAX_PACKET_LENGTH;
 	for (i = 0; i < additional; ++i) {
-		u32 ttl = 0;
-		u16 rdlen = 0;
-		u16 type, class;
-
 		SKIP_NAME;
 		GET16(type);
 		GET16(class);
 		GET32(ttl);
 		GET16(rdlen);
 		j += rdlen;
-		if (type == 41 && class > RFC_MAX_PACKET_LENGTH) {
+		(void)ttl;  /* suppress "unused variable" warnings. */
+		if (type == CLASS_OPT && class > RFC_MAX_PACKET_LENGTH) {
 			server_req->max_udp_reply_size = class;
 			fprintf(stderr, "EDNS encountered; setting max_udp_size to %d\n", (int)class);
 		}
@@ -1952,24 +1954,21 @@ evdns_request_len(const size_t name_len, const int max_record_len)
 /* */
 /* Returns the amount of space used. Negative on error. */
 static int
-evdns_request_data_build(const char *const name, const size_t name_len,
+evdns_request_data_build(const struct evdns_base *base,
+	const char *const name, const size_t name_len,
 	const u16 trans_id, const u16 type, const u16 class, u8 *const buf,
-	size_t buf_len, int max_record_len)
+	size_t buf_len)
 {
 	off_t j = 0;  /* current offset into buf */
 	u16 t_;	 /* used by the macros */
+	u32 t32_;  /* used by the macros */
 
 	APPEND16(trans_id);
 	APPEND16(0x0100);  /* standard query, recusion needed */
 	APPEND16(1);  /* one question */
 	APPEND16(0);  /* no answers */
 	APPEND16(0);  /* no authority */
-	if (max_record_len > RFC_MAX_PACKET_LENGTH) {
-		APPEND16(1); /* 1 additional record for the pseudo resource record used
-						by extended dns */
-	} else {
-		APPEND16(0); /* no additional */
-	}
+	APPEND16(EVDNS_ENABLED(base) ? 1 : 0); /* additional */
 
 	j = dnsname_to_labels(buf, buf_len, j, name, name_len, NULL);
 	if (j < 0) {
@@ -1979,8 +1978,7 @@ evdns_request_data_build(const char *const name, const size_t name_len,
 	APPEND16(type);
 	APPEND16(class);
 
-
-	/* structure of the extended dns record
+	/* The OPT pseudo-RR format (https://tools.ietf.org/html/rfc6891#section-6.1.2)
 	 * +------------+--------------+------------------------------+
 	 * | Field Name | Field Type   | Description                  |
 	 * +------------+--------------+------------------------------+
@@ -1991,13 +1989,12 @@ evdns_request_data_build(const char *const name, const size_t name_len,
 	 * | RDLEN      | u_int16_t    | length of all RDATA          |
 	 * | RDATA      | octet stream | {attribute,value} pairs      |
 	 * +------------+--------------+------------------------------+ */
-	if (max_record_len > RFC_MAX_PACKET_LENGTH) {
-		buf[j++] = 0;			  /* NAME, always 0 */
-		APPEND16(CLASS_OPT);	  /* OPT type */
-		APPEND16(max_record_len); /* max UDP payload size */
-		APPEND16(0);			  /* No extended RCODE flags set */
-		APPEND16(0);			  /* No extended RCODE flags set */
-		APPEND16(0);			  /* RDATA is always 0 length */
+	if (EVDNS_ENABLED(base)) {
+		buf[j++] = 0;  /* NAME, always 0 */
+		APPEND16(CLASS_OPT);  /* OPT type */
+		APPEND16(base->global_max_record_len);  /* max UDP payload size */
+		APPEND32(0);  /* No extended RCODE flags set */
+		APPEND16(0);  /* RDATA is always 0 length */
 	}
 
 	return (int)j;
@@ -3485,8 +3482,8 @@ request_new(struct evdns_base *base, struct evdns_request *handle, int type,
 	req->request = ((u8 *) req) + sizeof(struct request);
 	/* denotes that the request data shouldn't be free()ed */
 	req->request_appended = 1;
-	rlen = evdns_request_data_build(name, name_len, trans_id, type, CLASS_INET,
-		req->request, request_max_len, max_record_len);
+	rlen = evdns_request_data_build(base, name, name_len, trans_id, type, CLASS_INET,
+		req->request, request_max_len);
 	if (rlen < 0)
 		goto err1;
 
