@@ -666,7 +666,7 @@ dns_large_udp_test(void *arg)
 	tt_int_op(r[0].result, ==, DNS_ERR_TRUNCATED);
 	tt_int_op(r[0].count, ==, 0);
 
-	tt_assert(!evdns_base_set_option(dns, "max-record-len", "4096"));
+	tt_assert(!evdns_base_set_option(dns, "edns-udp-size", "4096"));
 	n_replies_left = 1;
 	evdns_base_resolve_ipv4(dns, "medium.b.example.com",
 		DNS_QUERY_IGNTC, generic_dns_callback, &r[0]);
@@ -679,6 +679,7 @@ end:
 
 	regress_clean_dnsserver();
 }
+
 static void
 dns_search_empty_test(void *arg)
 {

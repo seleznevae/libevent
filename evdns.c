@@ -148,15 +148,15 @@
 #define MAX_V6_ADDRS 32
 
 /* Default UDP Response max packet length */
-#define RFC_MAX_PACKET_LENGTH 512
+#define DEFAULT_MAX_UDP_SIZE 512
 /* Reasonable default value for max UDP packets in EDNS (see rfc6891). */
-#define EDNS_DEFAULT_PACKET_LENGTH 1280
+#define EDNS_DEFAULT_UDP_SIZE 1280
 /* Absolute max UDP packet size in EDNS that we can process
   recommended by https://tools.ietf.org/html/rfc6891#section-6.2.5 */
-#define EDNS_LIMIT_PACKET_LENGTH 4096
+#define EDNS_MAX_UDP_SIZE 4096
 
 #define EVDNS_ENABLED(base) \
-	(((base)->global_max_record_len) > RFC_MAX_PACKET_LENGTH)
+	(((base)->global_max_udp_size) > DEFAULT_MAX_UDP_SIZE)
 
 #define TYPE_A	       EVDNS_TYPE_A
 #define TYPE_CNAME     5
@@ -384,8 +384,8 @@ struct evdns_base {
 	/* true iff we will use the 0x20 hack to prevent poisoning attacks. */
 	int global_randomize_case;
 
-	/* Maximum record length of a DNS packet, default is 512 bytes */
-	u16 global_max_record_len;
+	/* Maximum size of a UDP DNS packet. */
+	u16 global_max_udp_size;
 
 	/* The first time that a nameserver fails, how long do we wait before
 	 * probing to see if it has returned?  */
@@ -1499,7 +1499,7 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 	}
 
 	/* Ignore answers, authority, and additional. */
-	server_req->max_udp_reply_size = RFC_MAX_PACKET_LENGTH;
+	server_req->max_udp_reply_size = DEFAULT_MAX_UDP_SIZE;
 	for (i = 0; i < additional; ++i) {
 		SKIP_NAME;
 		GET16(type);
@@ -1508,7 +1508,7 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 		GET16(rdlen);
 		j += rdlen;
 		(void)ttl;  /* suppress "unused variable" warnings. */
-		if (type == CLASS_OPT && class > RFC_MAX_PACKET_LENGTH) {
+		if (type == CLASS_OPT && class > DEFAULT_MAX_UDP_SIZE) {
 			server_req->max_udp_reply_size = class;
 			fprintf(stderr, "EDNS encountered; setting max_udp_size to %d\n", (int)class);
 		}
@@ -1610,9 +1610,9 @@ static void
 nameserver_read(struct nameserver *ns) {
 	struct sockaddr_storage ss;
 	ev_socklen_t addrlen = sizeof(ss);
-	u8 packet[EDNS_LIMIT_PACKET_LENGTH];
+	u8 packet[EDNS_MAX_UDP_SIZE];
 	char addrbuf[128];
-	const size_t max_record_len = MIN(ns->base->global_max_record_len, sizeof(packet));
+	const size_t max_record_len = MIN(ns->base->global_max_udp_size, sizeof(packet));
 	ASSERT_LOCKED(ns->base);
 
 	for (;;) {
@@ -1937,7 +1937,7 @@ evdns_request_len(const size_t name_len, const int max_record_len)
 {
 	int extended_dns_len = 0;
 	/* Length of a extended dns puesdo-Resource Record */
-	if (max_record_len > RFC_MAX_PACKET_LENGTH) {
+	if (max_record_len > DEFAULT_MAX_UDP_SIZE) {
 		extended_dns_len = 1 + /* length of domain name string, always 0 */
 						   2 + /* space for resource type */
 						   2 + /* space for UDP payload size */
@@ -1992,9 +1992,9 @@ evdns_request_data_build(const struct evdns_base *base,
 	if (EVDNS_ENABLED(base)) {
 		buf[j++] = 0;  /* NAME, always 0 */
 		APPEND16(CLASS_OPT);  /* OPT type */
-		APPEND16(base->global_max_record_len);  /* max UDP payload size */
+		APPEND16(base->global_max_udp_size);  /* max UDP payload size */
 		APPEND32(0);  /* No extended RCODE flags set */
-		APPEND16(0);  /* RDATA is always 0 length */
+		APPEND16(0);  /* length of RDATA is 0 */
 	}
 
 	return (int)j;
@@ -3437,7 +3437,7 @@ request_new(struct evdns_base *base, struct evdns_request *handle, int type,
 	    (base->global_requests_inflight < base->global_max_requests_inflight) ? 1 : 0;
 
 	const size_t name_len = strlen(name);
-	const int max_record_len = base->global_max_record_len;
+	const int max_record_len = base->global_max_udp_size;
 	const size_t request_max_len = evdns_request_len(name_len, max_record_len);
 	const u16 trans_id = issuing_now ? transaction_id_pick(base) : 0xffff;
 	/* the request data is alloced in a single block with the header */
@@ -4311,13 +4311,12 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		if (val && strlen(val)) return -1;
 		log(EVDNS_LOG_DEBUG, "Setting ignore-tc option");
 		base->global_tcp_flags |= DNS_QUERY_IGNTC;
-	} else if (str_matches_option(option, "max-record-len:")) {
-		int max_record_len = strtoint(val);
-		if (max_record_len == -1) return -1;
-		if (max_record_len > EDNS_LIMIT_PACKET_LENGTH) max_record_len = EDNS_LIMIT_PACKET_LENGTH;
+	} else if (str_matches_option(option, "edns-udp-size:")) {
+		const int sz = strtoint_clipped(val, DEFAULT_MAX_UDP_SIZE, EDNS_MAX_UDP_SIZE);
+		if (sz == -1) return -1;
 		if (!(flags & DNS_OPTION_MISC)) return 0;
-		log(EVDNS_LOG_DEBUG, "Setting max-record-len to %d", max_record_len);
-		base->global_max_record_len = max_record_len;
+		log(EVDNS_LOG_DEBUG, "Setting edns-udp-size to %d", sz);
+		base->global_max_udp_size = sz;
 	}
 	return 0;
 }
@@ -4755,7 +4754,7 @@ evdns_base_new(struct event_base *event_base, int flags)
 	base->global_max_nameserver_timeout = 3;
 	base->global_search_state = NULL;
 	base->global_randomize_case = 1;
-	base->global_max_record_len = RFC_MAX_PACKET_LENGTH;
+	base->global_max_udp_size = DEFAULT_MAX_UDP_SIZE;
 	base->global_getaddrinfo_allow_skew.tv_sec = 3;
 	base->global_getaddrinfo_allow_skew.tv_usec = 0;
 	base->global_nameserver_probe_initial_timeout.tv_sec = 10;

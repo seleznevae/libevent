@@ -485,7 +485,7 @@ void evdns_cancel_request(struct evdns_base *base, struct evdns_request *req);
         nameserver has come back up. Default 10
     getaddrinfo-allow-skew - How many seconds to wait for both IPv4 and IPv6
         responses once one of them has been received. Defaults to 3 seconds.
-    max-record-len - Maximum size allowed for a UDP response. Uses DNS
+    edns-udp-size - Maximum size allowed for a UDP response. Uses DNS
         extension to increased the allowed size past 512 bytes. Default is 512.
 	// dpayne
 
