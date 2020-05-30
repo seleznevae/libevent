@@ -155,7 +155,7 @@
  * (see https://tools.ietf.org/html/rfc6891#section-6.2.5). */
 #define EDNS_UDP_SIZE_LIMIT 4096
 
-#define EVDNS_ENABLED(base) \
+#define EDNS_ENABLED(base) \
 	(((base)->global_max_udp_size) > DNS_MAX_UDP_SIZE)
 
 #define TYPE_A	       EVDNS_TYPE_A
@@ -331,7 +331,7 @@ struct server_request {
 	struct client_tcp_connection *client; /* Equal to NULL in case of UDP connection. */
 	struct sockaddr_storage addr; /* Where to send the response in case of UDP. Equal to NULL in case of TCP connection.*/
 	ev_socklen_t addrlen; /* length of addr */
-	u16 max_udp_reply_size; /* Maximum size of udp reply that client can handle */
+	u16 max_udp_reply_size; /* Maximum size of udp reply that client can handle. */
 
 	int n_answer; /* how many answer RRs have been set? */
 	int n_authority; /* how many authority RRs have been set? */
@@ -383,7 +383,6 @@ struct evdns_base {
 	int global_max_nameserver_timeout;
 	/* true iff we will use the 0x20 hack to prevent poisoning attacks. */
 	int global_randomize_case;
-
 	/* Maximum size of a UDP DNS packet. */
 	u16 global_max_udp_size;
 
@@ -1610,12 +1609,12 @@ nameserver_read(struct nameserver *ns) {
 	ev_socklen_t addrlen = sizeof(ss);
 	u8 packet[EDNS_UDP_SIZE_LIMIT];
 	char addrbuf[128];
-	const size_t max_record_len = MIN(ns->base->global_max_udp_size, sizeof(packet));
+	const size_t max_packet_len = MIN(ns->base->global_max_udp_size, sizeof(packet));
 	ASSERT_LOCKED(ns->base);
 
 	for (;;) {
 		const int r = recvfrom(ns->socket, (void*)packet,
-		    max_record_len, 0,
+		    max_packet_len, 0,
 		    (struct sockaddr*)&ss, &addrlen);
 		if (r < 0) {
 			int err = evutil_socket_geterror(ns->socket);
@@ -1931,11 +1930,11 @@ dnsname_to_labels(u8 *const buf, size_t buf_len, off_t j,
 /* length. The actual request may be smaller than the value returned */
 /* here */
 static size_t
-evdns_request_len(const size_t name_len, const int max_record_len)
+evdns_request_len(const struct evdns_base *base, const size_t name_len)
 {
 	int extended_dns_len = 0;
 	/* Length of a extended dns puesdo-Resource Record */
-	if (max_record_len > DNS_MAX_UDP_SIZE) {
+	if (EDNS_ENABLED(base)) {
 		extended_dns_len = 1 + /* length of domain name string, always 0 */
 						   2 + /* space for resource type */
 						   2 + /* space for UDP payload size */
@@ -1966,7 +1965,7 @@ evdns_request_data_build(const struct evdns_base *base,
 	APPEND16(1);  /* one question */
 	APPEND16(0);  /* no answers */
 	APPEND16(0);  /* no authority */
-	APPEND16(EVDNS_ENABLED(base) ? 1 : 0); /* additional */
+	APPEND16(EDNS_ENABLED(base) ? 1 : 0); /* additional */
 
 	j = dnsname_to_labels(buf, buf_len, j, name, name_len, NULL);
 	if (j < 0) {
@@ -1987,7 +1986,7 @@ evdns_request_data_build(const struct evdns_base *base,
 	 * | RDLEN      | u_int16_t    | length of all RDATA          |
 	 * | RDATA      | octet stream | {attribute,value} pairs      |
 	 * +------------+--------------+------------------------------+ */
-	if (EVDNS_ENABLED(base)) {
+	if (EDNS_ENABLED(base)) {
 		buf[j++] = 0;  /* NAME, always 0 */
 		APPEND16(CLASS_OPT);  /* OPT type */
 		APPEND16(base->global_max_udp_size);  /* max UDP payload size */
@@ -3435,8 +3434,7 @@ request_new(struct evdns_base *base, struct evdns_request *handle, int type,
 	    (base->global_requests_inflight < base->global_max_requests_inflight) ? 1 : 0;
 
 	const size_t name_len = strlen(name);
-	const int max_record_len = base->global_max_udp_size;
-	const size_t request_max_len = evdns_request_len(name_len, max_record_len);
+	const size_t request_max_len = evdns_request_len(base, name_len);
 	const u16 trans_id = issuing_now ? transaction_id_pick(base) : 0xffff;
 	/* the request data is alloced in a single block with the header */
 	struct request *const req =
