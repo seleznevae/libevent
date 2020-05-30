@@ -642,45 +642,6 @@ end:
 }
 
 static void
-dns_large_udp_test(void *arg)
-{
-	struct basic_test_data *data = arg;
-	struct event_base *base = data->base;
-	struct evdns_base *dns = NULL;
-	ev_uint16_t portnum = 0;
-	char buf[64];
-	struct generic_dns_callback_result r[8];
-	struct in_addr addrs[2048]; /* used by macros `assert_request_results` */
-	int k_; /* used by macros `assert_request_results` */
-
-	exit_base = base;
-	tt_assert(regress_dnsserver(base, &portnum, search_table, NULL));
-	evutil_snprintf(buf, sizeof(buf), "127.0.0.1:%d", (int)portnum);
-	dns = evdns_base_new(base, 0);
-	tt_assert(!evdns_base_nameserver_ip_add(dns, buf));
-
-	n_replies_left = 1;
-	evdns_base_resolve_ipv4(dns, "medium.b.example.com",
-		DNS_QUERY_IGNTC, generic_dns_callback, &r[0]);
-	event_base_dispatch(base);
-	tt_int_op(r[0].result, ==, DNS_ERR_TRUNCATED);
-	tt_int_op(r[0].count, ==, 0);
-
-	tt_assert(!evdns_base_set_option(dns, "edns-udp-size", "4096"));
-	n_replies_left = 1;
-	evdns_base_resolve_ipv4(dns, "medium.b.example.com",
-		DNS_QUERY_IGNTC, generic_dns_callback, &r[0]);
-	event_base_dispatch(base);
-	assert_request_results(r[0], DNS_ERR_NONE, REPEAT_64("11.22.33.45") "," REPEAT_64("12.22.33.45"));
-
-end:
-	if (dns)
-		evdns_base_free(dns, 0);
-
-	regress_clean_dnsserver();
-}
-
-static void
 dns_search_empty_test(void *arg)
 {
 	struct basic_test_data *data = arg;
@@ -2648,6 +2609,52 @@ end:
 }
 
 static void
+test_edns(void *arg)
+{
+	struct basic_test_data *data = arg;
+	struct event_base *base = data->base;
+	struct evdns_base *dns = NULL;
+	ev_uint16_t portnum = 0;
+	char buf[64];
+	struct generic_dns_callback_result r;
+	struct in_addr addrs[2048]; /* used by macros `assert_request_results` */
+	int k_; /* used by macros `assert_request_results` */
+
+	exit_base = base;
+	tt_assert(regress_dnsserver(base, &portnum, search_table, NULL));
+	evutil_snprintf(buf, sizeof(buf), "127.0.0.1:%d", (int)portnum);
+	dns = evdns_base_new(base, 0);
+	tt_assert(!evdns_base_nameserver_ip_add(dns, buf));
+
+	n_replies_left = 1;
+	evdns_base_resolve_ipv4(dns, "medium.b.example.com",
+		DNS_QUERY_IGNTC, generic_dns_callback, &r);
+	event_base_dispatch(base);
+	tt_int_op(r.result, ==, DNS_ERR_TRUNCATED);
+	tt_int_op(r.count, ==, 0);
+
+	tt_assert(!evdns_base_set_option(dns, "edns-udp-size", "4096"));
+	n_replies_left = 1;
+	evdns_base_resolve_ipv4(dns, "medium.b.example.com",
+		DNS_QUERY_IGNTC, generic_dns_callback, &r);
+	event_base_dispatch(base);
+	assert_request_results(r, DNS_ERR_NONE, REPEAT_64("11.22.33.45") "," REPEAT_64("12.22.33.45"));
+
+	n_replies_left = 1;
+	evdns_base_resolve_ipv4(dns, "large.c.example.com",
+		DNS_QUERY_IGNTC, generic_dns_callback, &r);
+	event_base_dispatch(base);
+	tt_int_op(r.result, ==, DNS_ERR_TRUNCATED);
+	tt_int_op(r.count, ==, 0);
+
+end:
+	if (dns)
+		evdns_base_free(dns, 0);
+
+	regress_clean_dnsserver();
+}
+
+static void
 test_set_so_rcvbuf_so_sndbuf(void *arg)
 {
 	struct basic_test_data *data = arg;
@@ -2800,7 +2807,6 @@ struct testcase_t dns_testcases[] = {
 	{ "search_lower", dns_search_lower_test, TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 	{ "search_cancel", dns_search_cancel_test,
 	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
-	{ "dns_large_udp", dns_large_udp_test, TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 	{ "retry", dns_retry_test, TT_FORK|TT_NEED_BASE|TT_NO_LOGS, &basic_setup, NULL },
 	{ "retry_disable_when_inactive", dns_retry_disable_when_inactive_test,
 	  TT_FORK|TT_NEED_BASE|TT_NO_LOGS, &basic_setup, NULL },
@@ -2859,13 +2865,14 @@ struct testcase_t dns_testcases[] = {
 	  TT_FORK|TT_OFF_BY_DEFAULT, NULL, NULL },
 #endif
 	{ "tcp_resolve", test_tcp_resolve,
-	  TT_FORK | TT_NEED_BASE, &basic_setup, NULL },
+	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 	{ "tcp_resolve_pipeline", test_tcp_resolve_pipeline,
-	  TT_FORK | TT_NEED_BASE, &basic_setup, NULL },
+	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 	{ "tcp_resolve_many_clients", test_tcp_resolve_many_clients,
-	  TT_FORK | TT_NEED_BASE, &basic_setup, NULL },
+	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 	{ "tcp_timeout", test_tcp_timeout,
-	  TT_FORK | TT_NEED_BASE, &basic_setup, NULL },
+	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
+	{ "edns", test_edns, TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
 
 	{ "set_SO_RCVBUF_SO_SNDBUF", test_set_so_rcvbuf_so_sndbuf,
 	  TT_FORK|TT_NEED_BASE, &basic_setup, NULL },
