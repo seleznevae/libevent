@@ -147,16 +147,16 @@
 #define MAX_V4_ADDRS 32
 #define MAX_V6_ADDRS 32
 
-/* Default UDP Response max packet length */
-#define DEFAULT_MAX_UDP_SIZE 512
-/* Reasonable default value for max UDP packets in EDNS (see rfc6891). */
-#define EDNS_DEFAULT_UDP_SIZE 1280
-/* Absolute max UDP packet size in EDNS that we can process
-  recommended by https://tools.ietf.org/html/rfc6891#section-6.2.5 */
-#define EDNS_MAX_UDP_SIZE 4096
+/* Maximum allowable size of a DNS message over UDP without EDNS.*/
+#define DNS_MAX_UDP_SIZE 512
+/* Absolute limit for max UDP packet size in EDNS that we can process.
+ * We do not allow the user to set up too big `edns-udp-size` and choose
+ * 4096 bytes limit as a good compromise
+ * (see https://tools.ietf.org/html/rfc6891#section-6.2.5). */
+#define EDNS_UDP_SIZE_LIMIT 4096
 
 #define EVDNS_ENABLED(base) \
-	(((base)->global_max_udp_size) > DEFAULT_MAX_UDP_SIZE)
+	(((base)->global_max_udp_size) > DNS_MAX_UDP_SIZE)
 
 #define TYPE_A	       EVDNS_TYPE_A
 #define TYPE_CNAME     5
@@ -1499,7 +1499,7 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 	}
 
 	/* Ignore answers, authority, and additional. */
-	server_req->max_udp_reply_size = DEFAULT_MAX_UDP_SIZE;
+	server_req->max_udp_reply_size = DNS_MAX_UDP_SIZE;
 	for (i = 0; i < additional; ++i) {
 		SKIP_NAME;
 		GET16(type);
@@ -1508,10 +1508,8 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 		GET16(rdlen);
 		j += rdlen;
 		(void)ttl;  /* suppress "unused variable" warnings. */
-		if (type == CLASS_OPT && class > DEFAULT_MAX_UDP_SIZE) {
+		if (type == CLASS_OPT && class > DNS_MAX_UDP_SIZE)
 			server_req->max_udp_reply_size = class;
-			fprintf(stderr, "EDNS encountered; setting max_udp_size to %d\n", (int)class);
-		}
 	}
 
 	server_req->port = port;
@@ -1610,7 +1608,7 @@ static void
 nameserver_read(struct nameserver *ns) {
 	struct sockaddr_storage ss;
 	ev_socklen_t addrlen = sizeof(ss);
-	u8 packet[EDNS_MAX_UDP_SIZE];
+	u8 packet[EDNS_UDP_SIZE_LIMIT];
 	char addrbuf[128];
 	const size_t max_record_len = MIN(ns->base->global_max_udp_size, sizeof(packet));
 	ASSERT_LOCKED(ns->base);
@@ -1937,7 +1935,7 @@ evdns_request_len(const size_t name_len, const int max_record_len)
 {
 	int extended_dns_len = 0;
 	/* Length of a extended dns puesdo-Resource Record */
-	if (max_record_len > DEFAULT_MAX_UDP_SIZE) {
+	if (max_record_len > DNS_MAX_UDP_SIZE) {
 		extended_dns_len = 1 + /* length of domain name string, always 0 */
 						   2 + /* space for resource type */
 						   2 + /* space for UDP payload size */
@@ -4312,7 +4310,7 @@ evdns_base_set_option_impl(struct evdns_base *base,
 		log(EVDNS_LOG_DEBUG, "Setting ignore-tc option");
 		base->global_tcp_flags |= DNS_QUERY_IGNTC;
 	} else if (str_matches_option(option, "edns-udp-size:")) {
-		const int sz = strtoint_clipped(val, DEFAULT_MAX_UDP_SIZE, EDNS_MAX_UDP_SIZE);
+		const int sz = strtoint_clipped(val, DNS_MAX_UDP_SIZE, EDNS_UDP_SIZE_LIMIT);
 		if (sz == -1) return -1;
 		if (!(flags & DNS_OPTION_MISC)) return 0;
 		log(EVDNS_LOG_DEBUG, "Setting edns-udp-size to %d", sz);
@@ -4754,7 +4752,7 @@ evdns_base_new(struct event_base *event_base, int flags)
 	base->global_max_nameserver_timeout = 3;
 	base->global_search_state = NULL;
 	base->global_randomize_case = 1;
-	base->global_max_udp_size = DEFAULT_MAX_UDP_SIZE;
+	base->global_max_udp_size = DNS_MAX_UDP_SIZE;
 	base->global_getaddrinfo_allow_skew.tv_sec = 3;
 	base->global_getaddrinfo_allow_skew.tv_usec = 0;
 	base->global_nameserver_probe_initial_timeout.tv_sec = 10;

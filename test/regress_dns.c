@@ -640,7 +640,6 @@ end:
 
 	regress_clean_dnsserver();
 }
-
 static void
 dns_search_empty_test(void *arg)
 {
