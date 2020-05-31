@@ -163,9 +163,9 @@
 #define TYPE_PTR       EVDNS_TYPE_PTR
 #define TYPE_SOA       EVDNS_TYPE_SOA
 #define TYPE_AAAA      EVDNS_TYPE_AAAA
+#define TYPE_OPT       41
 
 #define CLASS_INET     EVDNS_CLASS_INET
-#define CLASS_OPT      EVDNS_CLASS_OPT
 
 /* Timeout in seconds for idle TCP connections that server keeps alive. */
 #define SERVER_IDLE_CONN_TIMEOUT 10
@@ -1455,9 +1455,6 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 	GET16(answers);
 	GET16(authority);
 	GET16(additional);
-	(void)answers;
-	(void)additional;
-	(void)authority;
 
 	if (flags & _QR_MASK) return -1; /* Must not be an answer. */
 	flags &= (_RD_MASK|_CD_MASK); /* Only RD and CD get preserved. */
@@ -1497,7 +1494,22 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 		server_req->base.questions[server_req->base.nquestions++] = q;
 	}
 
-	/* Ignore answers, authority, and additional. */
+#define SKIP_RR \
+	do { \
+		SKIP_NAME; \
+		j += 2 /* type */ + 2 /* class */ + 4 /* ttl */; \
+		GET16(rdlen); \
+		j += rdlen; \
+	} while (0)
+
+	for (i = 0; i < answers; ++i) {
+		SKIP_RR;
+	}
+
+	for (i = 0; i < authority; ++i) {
+		SKIP_RR;
+	}
+
 	server_req->max_udp_reply_size = DNS_MAX_UDP_SIZE;
 	for (i = 0; i < additional; ++i) {
 		SKIP_NAME;
@@ -1507,7 +1519,9 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 		GET16(rdlen);
 		j += rdlen;
 		(void)ttl;  /* suppress "unused variable" warnings. */
-		if (type == CLASS_OPT && class > DNS_MAX_UDP_SIZE)
+		/* In case of OPT pseudo-RR `class` field is treated
+		 * as a requestor's UDP payload size */
+		if (type == TYPE_OPT && class > DNS_MAX_UDP_SIZE)
 			server_req->max_udp_reply_size = class;
 	}
 
@@ -1532,6 +1546,7 @@ err:
 	mm_free(server_req);
 	return -1;
 
+#undef SKIP_RR
 #undef SKIP_NAME
 #undef GET32
 #undef GET16
@@ -1988,7 +2003,7 @@ evdns_request_data_build(const struct evdns_base *base,
 	 * +------------+--------------+------------------------------+ */
 	if (EDNS_ENABLED(base)) {
 		buf[j++] = 0;  /* NAME, always 0 */
-		APPEND16(CLASS_OPT);  /* OPT type */
+		APPEND16(TYPE_OPT);  /* OPT type */
 		APPEND16(base->global_max_udp_size);  /* max UDP payload size */
 		APPEND32(0);  /* No extended RCODE flags set */
 		APPEND16(0);  /* length of RDATA is 0 */
