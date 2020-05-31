@@ -1469,6 +1469,7 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 		server_req->addrlen = addrlen;
 	}
 
+	server_req->port = port;
 	server_req->client = client;
 	server_req->base.flags = flags;
 	server_req->base.nquestions = 0;
@@ -1518,14 +1519,21 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 		GET32(ttl);
 		GET16(rdlen);
 		j += rdlen;
-		(void)ttl;  /* suppress "unused variable" warnings. */
-		/* In case of OPT pseudo-RR `class` field is treated
-		 * as a requestor's UDP payload size */
-		if (type == TYPE_OPT && class > DNS_MAX_UDP_SIZE)
-			server_req->max_udp_reply_size = class;
+		if (type == TYPE_OPT) {
+			/* In case of OPT pseudo-RR `class` field is treated
+			 * as a requestor's UDP payload size */
+			server_req->max_udp_reply_size = MAX(class, DNS_MAX_UDP_SIZE);
+			evdns_server_request_add_reply(&(server_req->base),
+				EVDNS_ADDITIONAL_SECTION,
+				"", /* name */
+				type, server_req->max_udp_reply_size, ttl,
+				0, /* datalen */
+				0, /* is_name */
+				NULL /* data */
+			);
+		}
 	}
 
-	server_req->port = port;
 	port->refcnt++;
 
 	/* Only standard queries are supported. */
