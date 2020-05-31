@@ -1531,6 +1531,7 @@ request_parse(u8 *packet, int length, struct evdns_server_port *port,
 				0, /* is_name */
 				NULL /* data */
 			);
+			break;
 		}
 	}
 
@@ -1955,18 +1956,18 @@ dnsname_to_labels(u8 *const buf, size_t buf_len, off_t j,
 static size_t
 evdns_request_len(const struct evdns_base *base, const size_t name_len)
 {
-	int extended_dns_len = 0;
+	int addional_section_len = 0;
 	/* Length of a extended dns puesdo-Resource Record */
 	if (EDNS_ENABLED(base)) {
-		extended_dns_len = 1 + /* length of domain name string, always 0 */
-						   2 + /* space for resource type */
-						   2 + /* space for UDP payload size */
-						   4 + /* space for extended RCODE flags */
-						   2;  /* space for length of RDATA, always 0 */
+		addional_section_len = 1 + /* length of domain name string, always 0 */
+			2 + /* space for resource type */
+			2 + /* space for UDP payload size */
+			4 + /* space for extended RCODE flags */
+			2;  /* space for length of RDATA, always 0 */
 	}
 	return 96 + /* length of the DNS standard header */
 		   name_len + 2 + 4 /* space for the resource type */ +
-		   extended_dns_len;
+		   addional_section_len;
 }
 
 /* build a dns request packet into buf. buf should be at least as long */
